@@ -37,6 +37,8 @@ export interface MusicTrack {
   isLive?: boolean;
   bitrateLabel?: string;
   youtubeVideoId?: string;
+  videoUrl?: string;
+  isVideo?: boolean;
   spotifyId?: string;
   spotifyUrl?: string;
   spotifyEmbedUrl?: string;
@@ -159,6 +161,7 @@ export type AppView =
   | { type: 'artists' }
   | { type: 'rwanda' }
   | { type: 'artist_profile'; artistId: string; artistName?: string }
+  | { type: 'videos' }
   | { type: 'tv' }
   | { type: 'listening_room' }
   | { type: 'stores' }
