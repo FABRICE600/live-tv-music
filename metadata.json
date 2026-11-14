@@ -1,0 +1,8 @@
+{
+  "name": "live tv & music",
+  "description": "Boutique hi-fi music discovery, full-length global artist streaming, 5-band parametric equalizer, live world radio, and direct-to-artist storefront links.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

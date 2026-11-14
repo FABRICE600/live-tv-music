@@ -1,0 +1,219 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-display: "Fraunces", Georgia, ui-serif, serif;
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Nocturne Studio (Obsidian Dark - Signature Default) */
+:root,
+html.dark,
+html[data-surface="midnight"] {
+  --sm-bg: #0B0C10;
+  --sm-surface: #13151C;
+  --sm-surface-glass: rgba(19, 21, 28, 0.88);
+  --sm-muted: #1B1E28;
+  --sm-border: #252936;
+  --sm-text: #F2F0EC;
+  --sm-text-sec: #A1A6B5;
+  --sm-text-muted: #6C7284;
+  --sm-contrast-bg: #F2F0EC;
+  --sm-contrast-text: #0B0C10;
+}
+
+/* Deep Slate Dark */
+html[data-surface="slate"] {
+  --sm-bg: #080E1A;
+  --sm-surface: #0F172A;
+  --sm-surface-glass: rgba(15, 23, 42, 0.88);
+  --sm-muted: #18233B;
+  --sm-border: #24324F;
+  --sm-text: #F8FAFC;
+  --sm-text-sec: #94A3B8;
+  --sm-text-muted: #64748B;
+  --sm-contrast-bg: #F8FAFC;
+  --sm-contrast-text: #080E1A;
+}
+
+/* Gallery Limestone Light */
+html[data-surface="paper"] {
+  --sm-bg: #F3F2EE;
+  --sm-surface: #FFFFFF;
+  --sm-surface-glass: rgba(255, 255, 255, 0.90);
+  --sm-muted: #E9E7E0;
+  --sm-border: #D9D6CC;
+  --sm-text: #141413;
+  --sm-text-sec: #52514B;
+  --sm-text-muted: #78756C;
+  --sm-contrast-bg: #141413;
+  --sm-contrast-text: #FFFFFF;
+}
+
+/* Crisp Studio Ivory Light */
+html[data-surface="ivory"] {
+  --sm-bg: #F4F6FA;
+  --sm-surface: #FFFFFF;
+  --sm-surface-glass: rgba(255, 255, 255, 0.90);
+  --sm-muted: #E6EBF3;
+  --sm-border: #CFD8E5;
+  --sm-text: #0F172A;
+  --sm-text-sec: #475569;
+  --sm-text-muted: #64748B;
+  --sm-contrast-bg: #0F172A;
+  --sm-contrast-text: #FFFFFF;
+}
+
+/* Refined Studio Accent Palettes */
+:root,
+html[data-accent="amber"] {
+  --sm-accent: #C98617;
+  --sm-on-accent: #0B0C10;
+  --sm-accent-text: #B45309;
+  --sm-accent-soft: rgba(201, 134, 23, 0.14);
+}
+html.dark[data-accent="amber"],
+html.dark:not([data-accent]) {
+  --sm-accent: #E0A432;
+  --sm-on-accent: #0B0C10;
+  --sm-accent-text: #F5B942;
+  --sm-accent-soft: rgba(224, 164, 50, 0.16);
+}
+
+html[data-accent="vermilion"] {
+  --sm-accent: #C83E1B;
+  --sm-on-accent: #FFFFFF;
+  --sm-accent-text: #B83514;
+  --sm-accent-soft: rgba(200, 62, 27, 0.12);
+}
+html.dark[data-accent="vermilion"] {
+  --sm-accent: #E04F2B;
+  --sm-on-accent: #FFFFFF;
+  --sm-accent-text: #FF7D59;
+  --sm-accent-soft: rgba(224, 79, 43, 0.18);
+}
+
+html[data-accent="cobalt"] {
+  --sm-accent: #1D4ED8;
+  --sm-on-accent: #FFFFFF;
+  --sm-accent-text: #1D4ED8;
+  --sm-accent-soft: rgba(29, 78, 216, 0.12);
+}
+html.dark[data-accent="cobalt"] {
+  --sm-accent: #2563EB;
+  --sm-on-accent: #FFFFFF;
+  --sm-accent-text: #60A5FA;
+  --sm-accent-soft: rgba(59, 130, 246, 0.18);
+}
+
+html[data-accent="emerald"] {
+  --sm-accent: #0F766E;
+  --sm-on-accent: #FFFFFF;
+  --sm-accent-text: #0F766E;
+  --sm-accent-soft: rgba(15, 118, 110, 0.12);
+}
+html.dark[data-accent="emerald"] {
+  --sm-accent: #0D9488;
+  --sm-on-accent: #FFFFFF;
+  --sm-accent-text: #2DD4BF;
+  --sm-accent-soft: rgba(45, 212, 191, 0.16);
+}
+
+html[data-accent="plum"] {
+  --sm-accent: #6D28D9;
+  --sm-on-accent: #FFFFFF;
+  --sm-accent-text: #6D28D9;
+  --sm-accent-soft: rgba(109, 40, 217, 0.12);
+}
+html.dark[data-accent="plum"] {
+  --sm-accent: #7C3AED;
+  --sm-on-accent: #FFFFFF;
+  --sm-accent-text: #A78BFA;
+  --sm-accent-soft: rgba(167, 139, 250, 0.18);
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    background-color: var(--sm-bg);
+    color: var(--sm-text);
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.015em;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Precision range slider styling for audio scrub & EQ */
+input[type="range"].soundmark-range {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"].soundmark-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 9999px;
+}
+
+input[type="range"].soundmark-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: var(--sm-accent);
+  margin-top: -4px;
+  border: 2px solid var(--sm-surface);
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+input[type="range"].soundmark-range:hover::-webkit-slider-thumb {
+  transform: scale(1.2);
+}
+
+/* Subtle spin for playing vinyl sleeve in console */
+@keyframes slow-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.soundmark-spin-slow {
+  animation: slow-spin 18s linear infinite;
+}
+
+/* Custom subtle scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(140, 145, 160, 0.25);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(140, 145, 160, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  .soundmark-spin-slow {
+    animation: none !important;
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
