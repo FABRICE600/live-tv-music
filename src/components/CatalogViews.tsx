@@ -89,6 +89,8 @@ interface BrowseViewProps {
   onOpenLyrics: (track: MusicTrack) => void;
   onOpenSpotifyEmbed: (track: MusicTrack) => void;
   onSelectArtist: (artistId: string, artistName?: string) => void;
+  onWatchVideo?: (track: MusicTrack, contextTracks?: MusicTrack[]) => void;
+  resolvingVideoTrackId?: string | null;
   onCacheTracks: (tracks: MusicTrack[]) => void;
 }
 
@@ -111,6 +113,8 @@ export function BrowseView({
   onOpenLyrics,
   onOpenSpotifyEmbed,
   onSelectArtist,
+  onWatchVideo,
+  resolvingVideoTrackId,
   onCacheTracks,
 }: BrowseViewProps) {
   const [query, setQuery] = useState(initialQuery);
@@ -282,6 +286,8 @@ export function BrowseView({
           onOpenLyrics={onOpenLyrics}
           onOpenSpotifyEmbed={onOpenSpotifyEmbed}
           onSelectArtist={onSelectArtist}
+          onWatchVideo={onWatchVideo}
+          resolvingVideoTrackId={resolvingVideoTrackId}
         />
       )}
     </div>
@@ -431,6 +437,8 @@ interface ArtistProfileViewProps {
   onOpenLyrics: (track: MusicTrack) => void;
   onOpenSpotifyEmbed: (track: MusicTrack) => void;
   onSelectArtist: (artistId: string, artistName?: string) => void;
+  onWatchVideo?: (track: MusicTrack, contextTracks?: MusicTrack[]) => void;
+  resolvingVideoTrackId?: string | null;
   onCacheTracks: (tracks: MusicTrack[]) => void;
 }
 
@@ -452,6 +460,8 @@ export function ArtistProfileView({
   onOpenLyrics,
   onOpenSpotifyEmbed,
   onSelectArtist,
+  onWatchVideo,
+  resolvingVideoTrackId,
   onCacheTracks,
 }: ArtistProfileViewProps) {
   const [artist, setArtist] = useState<ArtistSummary | null>(null);
@@ -625,6 +635,8 @@ export function ArtistProfileView({
             onOpenLyrics={onOpenLyrics}
             onOpenSpotifyEmbed={onOpenSpotifyEmbed}
             onSelectArtist={onSelectArtist}
+            onWatchVideo={onWatchVideo}
+            resolvingVideoTrackId={resolvingVideoTrackId}
             emptyMessage={`No songs found for ${artist?.name || artistName || 'this artist'}. Try searching a specific song title above.`}
           />
         </>
@@ -866,6 +878,8 @@ interface LikedViewProps {
   onOpenLyrics: (track: MusicTrack) => void;
   onOpenSpotifyEmbed: (track: MusicTrack) => void;
   onSelectArtist: (artistId: string, artistName?: string) => void;
+  onWatchVideo?: (track: MusicTrack, contextTracks?: MusicTrack[]) => void;
+  resolvingVideoTrackId?: string | null;
 }
 
 export function LikedView(props: LikedViewProps) {
@@ -1043,6 +1057,8 @@ interface CustomPlaylistViewProps {
   onOpenLyrics: (track: MusicTrack) => void;
   onOpenSpotifyEmbed: (track: MusicTrack) => void;
   onSelectArtist: (artistId: string, artistName?: string) => void;
+  onWatchVideo?: (track: MusicTrack, contextTracks?: MusicTrack[]) => void;
+  resolvingVideoTrackId?: string | null;
   onRemoveTrack: (playlistId: string, trackId: string) => void;
   onDeletePlaylist: (playlistId: string) => void;
 }

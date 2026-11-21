@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import {
+  Home,
   Compass,
   Search,
   Users,
@@ -14,8 +15,16 @@ import {
   X,
   Disc3,
   Tv,
+  Film,
+  Keyboard,
   Palette,
   Music2,
+  Trophy,
+  Sparkles,
+  Bot,
+  MapPin,
+  Box,
+  Gamepad2,
 } from 'lucide-react';
 import type { AccentMode, AppView, SurfaceMode, UserPlaylist } from '../types/music';
 import { ACCENT_MODES, SURFACE_MODES } from '../utils/formatters';
@@ -31,6 +40,7 @@ interface SidebarProps {
   accentMode: AccentMode;
   onChangeSurface: (mode: SurfaceMode) => void;
   onChangeAccent: (mode: AccentMode) => void;
+  onOpenShortcuts: () => void;
   mobileOpen: boolean;
   onCloseMobile: () => void;
 }
@@ -46,6 +56,7 @@ export function Sidebar({
   accentMode,
   onChangeSurface,
   onChangeAccent,
+  onOpenShortcuts,
   mobileOpen,
   onCloseMobile,
 }: SidebarProps) {
@@ -79,7 +90,7 @@ export function Sidebar({
         <button
           type="button"
           onClick={() => {
-            onNavigate({ type: 'discover' });
+            onNavigate({ type: 'home' });
             onCloseMobile();
           }}
           className="flex items-center gap-2.5 text-left focus-visible:outline-2 focus-visible:outline-[var(--sm-accent)]"
@@ -108,6 +119,20 @@ export function Sidebar({
           <div className="px-3 pb-1.5 text-[11px] font-medium text-[var(--sm-text-muted)]">
             Explore
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              onNavigate({ type: 'home' });
+              onCloseMobile();
+            }}
+            className={navItemClass(activeView.type === 'home')}
+          >
+            <span className="flex items-center gap-2.5">
+              <Home size={16} />
+              <span>Home</span>
+            </span>
+          </button>
+
           <button
             type="button"
             onClick={() => {
@@ -183,6 +208,34 @@ export function Sidebar({
           <button
             type="button"
             onClick={() => {
+              onNavigate({ type: 'matches' });
+              onCloseMobile();
+            }}
+            className={navItemClass(activeView.type === 'matches')}
+          >
+            <span className="flex items-center gap-2.5">
+              <Trophy size={16} />
+              <span>Live Matches &amp; Scores</span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onNavigate({ type: 'videos' });
+              onCloseMobile();
+            }}
+            className={navItemClass(activeView.type === 'videos')}
+          >
+            <span className="flex items-center gap-2.5">
+              <Film size={16} />
+              <span>Music Videos</span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
               onNavigate({ type: 'listening_room' });
               onCloseMobile();
             }}
@@ -205,6 +258,82 @@ export function Sidebar({
             <span className="flex items-center gap-2.5">
               <Store size={16} />
               <span>Digital Stores</span>
+            </span>
+          </button>
+        </div>
+
+        <div className="space-y-1 pt-2 border-t border-[var(--sm-border)]">
+          <div className="px-3 pb-1.5 text-[11px] font-medium text-[var(--sm-text-muted)]">
+            Studio &amp; Stage
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              onNavigate({ type: 'ai_studio' });
+              onCloseMobile();
+            }}
+            className={navItemClass(activeView.type === 'ai_studio')}
+          >
+            <span className="flex items-center gap-2.5">
+              <Sparkles size={16} />
+              <span>Creative Studio</span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onNavigate({ type: 'assistant' });
+              onCloseMobile();
+            }}
+            className={navItemClass(activeView.type === 'assistant')}
+          >
+            <span className="flex items-center gap-2.5">
+              <Bot size={16} />
+              <span>Studio Assistant</span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onNavigate({ type: 'maps' });
+              onCloseMobile();
+            }}
+            className={navItemClass(activeView.type === 'maps')}
+          >
+            <span className="flex items-center gap-2.5">
+              <MapPin size={16} />
+              <span>Venue &amp; Stadium Map</span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onNavigate({ type: 'stage_3d' });
+              onCloseMobile();
+            }}
+            className={navItemClass(activeView.type === 'stage_3d')}
+          >
+            <span className="flex items-center gap-2.5">
+              <Box size={16} />
+              <span>3D Hi-Fi Stage</span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onNavigate({ type: 'game_3d' });
+              onCloseMobile();
+            }}
+            className={navItemClass(activeView.type === 'game_3d')}
+          >
+            <span className="flex items-center gap-2.5">
+              <Gamepad2 size={16} />
+              <span>Beat Stage 3D</span>
             </span>
           </button>
         </div>
@@ -416,6 +545,18 @@ export function Sidebar({
             className="p-2 rounded-lg text-[var(--sm-text-sec)] bg-[var(--sm-bg)] border border-[var(--sm-border)] hover:text-[var(--sm-text)] transition-colors shrink-0"
           >
             {activeSurface.isDark ? <Moon size={14} /> : <Sun size={14} />}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onOpenShortcuts();
+              onCloseMobile();
+            }}
+            title="Keyboard Shortcuts (?)"
+            aria-label="Open Keyboard Shortcuts"
+            className="p-2 rounded-lg text-[var(--sm-text-sec)] bg-[var(--sm-bg)] border border-[var(--sm-border)] hover:text-[var(--sm-text)] transition-colors shrink-0"
+          >
+            <Keyboard size={14} />
           </button>
         </div>
       </div>

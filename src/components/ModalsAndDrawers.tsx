@@ -9,6 +9,7 @@ import {
   FileText,
   Copy,
   Check,
+  Keyboard,
 } from 'lucide-react';
 import type { MusicTrack, SpotifyEmbedTarget } from '../types/music';
 import { formatDuration } from '../utils/formatters';
@@ -434,3 +435,144 @@ export function QueueDrawer({
     </div>
   );
 }
+
+/* 5. Keyboard Shortcuts Modal */
+interface ShortcutsModalProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+const SHORTCUT_GROUPS: Array<{
+  title: string;
+  items: Array<{ keys: string[]; label: string }>;
+}> = [
+  {
+    title: 'Playback & Transport',
+    items: [
+      { keys: ['Space'], label: 'Play or pause current track / video' },
+      { keys: ['N'], label: 'Skip to next track in queue' },
+      { keys: ['P'], label: 'Previous track or restart track' },
+      { keys: ['J'], label: 'Seek backward 10 seconds' },
+      { keys: ['L'], label: 'Seek forward 10 seconds' },
+      { keys: ['M'], label: 'Mute or unmute audio' },
+    ],
+  },
+  {
+    title: 'Video & Navigation',
+    items: [
+      { keys: ['H'], label: 'Go to Soundmark Home Page' },
+      { keys: ['V'], label: 'Toggle Music Video Cinema / Mini screen' },
+      { keys: ['T'], label: 'Jump to World Live TV Theatre' },
+      { keys: ['S'], label: 'Jump to Live Match TV & Scores' },
+      { keys: ['Q'], label: 'Open or close Playback Queue drawer' },
+      { keys: ['/', 'or', '⌘/Ctrl', 'K'], label: 'Focus global search bar' },
+    ],
+  },
+  {
+    title: 'Interface & Accessibility',
+    items: [
+      { keys: ['?'], label: 'Open or close this Shortcuts dialog' },
+      { keys: ['Esc'], label: 'Close active modal, drawer, or Cinema Theater' },
+    ],
+  },
+];
+
+export function ShortcutsModal({ open, onClose }: ShortcutsModalProps) {
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="shortcuts-modal-title"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-2xl rounded-2xl border border-[var(--sm-border)] bg-[var(--sm-surface)] p-6 space-y-6 shadow-2xl"
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-[var(--sm-border)] pb-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--sm-accent-text)]">
+              <Keyboard size={14} />
+              <span>Accessibility &amp; Studio Controls</span>
+            </div>
+            <h2
+              id="shortcuts-modal-title"
+              className="font-display text-xl font-bold text-[var(--sm-text)]"
+            >
+              Keyboard Shortcuts
+            </h2>
+            <p className="text-xs text-[var(--sm-text-sec)]">
+              Single-key shortcuts stay active anywhere outside text inputs.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close keyboard shortcuts"
+            className="p-1.5 rounded-lg text-[var(--sm-text-muted)] hover:text-[var(--sm-text)] hover:bg-[var(--sm-muted)] transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {SHORTCUT_GROUPS.map((group) => (
+            <div key={group.title} className="space-y-2.5">
+              <h3 className="text-xs font-semibold text-[var(--sm-text-muted)]">
+                {group.title}
+              </h3>
+              <div className="border border-[var(--sm-border)] rounded-xl divide-y divide-[var(--sm-border)] bg-[var(--sm-bg)]/60">
+                {group.items.map((item) => (
+                  <div
+                    key={item.label}
+                    className="flex items-center justify-between gap-3 px-3.5 py-2.5"
+                  >
+                    <span className="text-xs text-[var(--sm-text)] leading-snug">
+                      {item.label}
+                    </span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {item.keys.map((k, idx) =>
+                        k === 'or' ? (
+                          <span
+                            key={`${item.label}-or-${idx}`}
+                            className="text-[10px] text-[var(--sm-text-muted)] px-0.5"
+                          >
+                            /
+                          </span>
+                        ) : (
+                          <kbd
+                            key={`${item.label}-${k}-${idx}`}
+                            className="px-2 py-0.5 rounded-md border border-[var(--sm-border)] bg-[var(--sm-surface)] font-mono tabular-nums text-[11px] font-semibold text-[var(--sm-text)] shadow-2xs"
+                          >
+                            {k}
+                          </kbd>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between pt-3 border-t border-[var(--sm-border)]">
+          <span className="text-xs text-[var(--sm-text-muted)]">
+            Press <kbd className="px-1.5 py-0.5 rounded border border-[var(--sm-border)] bg-[var(--sm-bg)] font-mono text-[11px]">?</kbd> anytime to toggle this reference
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-full bg-[var(--sm-accent)] text-[var(--sm-on-accent)] text-xs font-semibold hover:opacity-90"
+          >
+            Got it
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+

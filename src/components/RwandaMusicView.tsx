@@ -36,6 +36,8 @@ interface RwandaMusicViewProps {
   onOpenLyrics: (track: MusicTrack) => void;
   onOpenSpotifyEmbed: (track: MusicTrack) => void;
   onSelectArtist: (artistId: string, artistName?: string) => void;
+  onWatchVideo?: (track: MusicTrack, contextTracks?: MusicTrack[]) => void;
+  resolvingVideoTrackId?: string | null;
   onSearchRwandaCatalog: (query: string) => void;
   onCacheTracks: (tracks: MusicTrack[]) => void;
 }
@@ -64,6 +66,8 @@ export function RwandaMusicView({
   onOpenLyrics,
   onOpenSpotifyEmbed,
   onSelectArtist,
+  onWatchVideo,
+  resolvingVideoTrackId,
   onSearchRwandaCatalog,
   onCacheTracks,
 }: RwandaMusicViewProps) {
@@ -357,6 +361,8 @@ export function RwandaMusicView({
             onOpenLyrics={onOpenLyrics}
             onOpenSpotifyEmbed={onOpenSpotifyEmbed}
             onSelectArtist={onSelectArtist}
+            onWatchVideo={onWatchVideo}
+            resolvingVideoTrackId={resolvingVideoTrackId}
           />
         </section>
       )}

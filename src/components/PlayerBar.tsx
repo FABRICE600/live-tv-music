@@ -19,6 +19,7 @@ import {
   Radio,
   ArrowLeftRight,
   Film,
+  Keyboard,
 } from 'lucide-react';
 import type { MusicTrack, RepeatMode, SleepTimerMode } from '../types/music';
 import { formatDuration } from '../utils/formatters';
@@ -59,7 +60,9 @@ interface PlayerBarProps {
   onSetSleepTimer: (mode: SleepTimerMode) => void;
   onChangeCrossfade: (seconds: number) => void;
   showMusicVideo?: boolean;
+  resolvingMusicVideo?: boolean;
   onToggleMusicVideo?: () => void;
+  onOpenShortcuts?: () => void;
   onSelectArtist: (artistId: string, artistName?: string) => void;
 }
 
@@ -98,7 +101,9 @@ export function PlayerBar({
   onSetSleepTimer,
   onChangeCrossfade,
   showMusicVideo,
+  resolvingMusicVideo,
   onToggleMusicVideo,
+  onOpenShortcuts,
   onSelectArtist,
 }: PlayerBarProps) {
   const [sleepMenuOpen, setSleepMenuOpen] = useState(false);
@@ -291,19 +296,32 @@ export function PlayerBar({
         <div className="hidden md:flex items-center justify-end gap-1.5 w-[30%]">
           {currentTrack && (
             <>
-              {currentTrack.youtubeVideoId && onToggleMusicVideo && (
+              {!currentTrack.isLive && onToggleMusicVideo && (
                 <button
                   type="button"
                   onClick={onToggleMusicVideo}
-                  title={showMusicVideo ? 'Hide Music Video' : 'Show Music Video'}
-                  aria-label={showMusicVideo ? 'Hide Music Video' : 'Show Music Video'}
+                  disabled={Boolean(resolvingMusicVideo)}
+                  title={
+                    showMusicVideo
+                      ? 'Hide Video Screen (V)'
+                      : currentTrack.youtubeVideoId || currentTrack.videoUrl
+                        ? 'Watch Music Video (V)'
+                        : 'Find & Watch Music Video (V)'
+                  }
+                  aria-label={showMusicVideo ? 'Hide Video Screen' : 'Watch Music Video'}
                   className={`p-2 rounded-md transition-colors ${
                     showMusicVideo
                       ? 'bg-[var(--sm-accent-soft)] text-[var(--sm-accent-text)]'
-                      : 'text-[var(--sm-text-sec)] hover:text-[var(--sm-text)] hover:bg-[var(--sm-muted)]'
+                      : currentTrack.youtubeVideoId || currentTrack.videoUrl
+                        ? 'text-[var(--sm-accent-text)] hover:bg-[var(--sm-muted)]'
+                        : 'text-[var(--sm-text-sec)] hover:text-[var(--sm-text)] hover:bg-[var(--sm-muted)]'
                   }`}
                 >
-                  <Film size={16} />
+                  {resolvingMusicVideo ? (
+                    <Loader2 size={16} className="animate-spin text-[var(--sm-accent-text)]" />
+                  ) : (
+                    <Film size={16} />
+                  )}
                 </button>
               )}
               <button
@@ -463,6 +481,18 @@ export function PlayerBar({
           >
             <SlidersHorizontal size={16} />
           </button>
+
+          {onOpenShortcuts && (
+            <button
+              type="button"
+              onClick={onOpenShortcuts}
+              title="Keyboard Shortcuts (?)"
+              aria-label="Keyboard Shortcuts"
+              className="p-2 rounded-md text-[var(--sm-text-sec)] hover:text-[var(--sm-text)] hover:bg-[var(--sm-muted)] transition-colors"
+            >
+              <Keyboard size={16} />
+            </button>
+          )}
 
           {/* Volume */}
           <div className="flex items-center gap-1.5 pl-1">

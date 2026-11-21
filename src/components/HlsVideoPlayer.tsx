@@ -1,6 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Hls from 'hls.js';
-import { AlertCircle, Loader2, RefreshCw, SkipForward, Volume2 } from 'lucide-react';
+import {
+  AlertCircle,
+  Camera,
+  Loader2,
+  Maximize,
+  PictureInPicture2,
+  RefreshCw,
+  SlidersHorizontal,
+  SkipForward,
+  Volume2,
+} from 'lucide-react';
+
+interface HlsLevelOption {
+  index: number;
+  label: string;
+}
 
 interface HlsVideoPlayerProps {
   streamUrl: string;
@@ -26,7 +41,7 @@ export function HlsVideoPlayer({
   onRequestProxyRelay,
   onNextChannel,
   onPlaybackStart,
-  className = 'w-full h-full object-contain',
+  className = 'w-full h-full',
   controls = true,
   muted = false,
   videoRefExternal,
@@ -36,6 +51,11 @@ export function HlsVideoPlayer({
   const [status, setStatus] = useState<'loading' | 'playing' | 'embed' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [autoplayMuted, setAutoplayMuted] = useState(false);
+  const [fillFrame, setFillFrame] = useState(false);
+  const [levels, setLevels] = useState<HlsLevelOption[]>([]);
+  const [currentLevel, setCurrentLevel] = useState<number>(-1);
+  const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
+  const [snapshotNotice, setSnapshotNotice] = useState<string | null>(null);
 
   const candidates = useMemo(() => {
     const list = [streamUrl, ...(alternateUrls || [])].filter(Boolean);
@@ -52,6 +72,9 @@ export function HlsVideoPlayer({
     setLocalRelay(useProxyRelay);
     setAutoplayMuted(false);
     setRetryNonce(0);
+    setLevels([]);
+    setCurrentLevel(-1);
+    setQualityMenuOpen(false);
   }, [streamUrl, embedUrl]);
 
   useEffect(() => {
@@ -152,7 +175,17 @@ export function HlsVideoPlayer({
       hls.loadSource(targetSrc);
       hls.attachMedia(video);
 
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      hls.on(Hls.Events.MANIFEST_PARSED, (_evt, data) => {
+        if (!disposed && Array.isArray(data?.levels) && data.levels.length > 0) {
+          const mapped = data.levels
+            .map((lvl, idx) => ({
+              index: idx,
+              label: lvl.height ? `${lvl.height}p` : `${Math.round((lvl.bitrate || 0) / 1000)}k`,
+            }))
+            .filter((item, i, arr) => arr.findIndex((x) => x.label === item.label) === i);
+          setLevels(mapped);
+          setCurrentLevel(-1);
+        }
         attemptPlay();
       });
 
@@ -215,6 +248,57 @@ export function HlsVideoPlayer({
     setAutoplayMuted(false);
   };
 
+  const handleTogglePip = async () => {
+    const video = internalRef.current;
+    if (!video) return;
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else if (video.requestPictureInPicture) {
+        await video.requestPictureInPicture();
+      }
+    } catch {
+      setSnapshotNotice('PiP unavailable for this stream');
+      setTimeout(() => setSnapshotNotice(null), 2000);
+    }
+  };
+
+  const handleSelectQuality = (lvlIndex: number) => {
+    if (hlsRef.current) {
+      hlsRef.current.currentLevel = lvlIndex;
+      setCurrentLevel(lvlIndex);
+    }
+    setQualityMenuOpen(false);
+  };
+
+  const handleSnapshot = () => {
+    const video = internalRef.current;
+    if (!video || video.videoWidth === 0 || video.videoHeight === 0) return;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const url = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${channelName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-frame.png`;
+      a.click();
+      setSnapshotNotice('Frame saved');
+      setTimeout(() => setSnapshotNotice(null), 1800);
+    } catch {
+      if (!activeRelay) {
+        onRequestProxyRelay();
+        setSnapshotNotice('Switching to Relay for frame capture...');
+      } else {
+        setSnapshotNotice('Stream blocks frame export');
+      }
+      setTimeout(() => setSnapshotNotice(null), 2200);
+    }
+  };
+
   if (status === 'embed' && embedUrl) {
     return (
       <div className="relative w-full h-full bg-[#0E0E0D]">
@@ -230,7 +314,7 @@ export function HlsVideoPlayer({
   }
 
   return (
-    <div className="relative w-full h-full bg-[#0E0E0D]">
+    <div className="relative w-full h-full bg-[#0E0E0D] group/vid">
       <video
         ref={(el) => {
           internalRef.current = el;
@@ -239,15 +323,109 @@ export function HlsVideoPlayer({
         controls={controls}
         playsInline
         autoPlay
+        crossOrigin="anonymous"
         muted={muted || autoplayMuted}
-        className={className}
+        className={`${className} ${fillFrame ? 'object-cover' : 'object-contain'}`}
       />
+
+      {/* Video Overlay Tools (Quality, PiP, Aspect Fill, Snapshot) */}
+      {status === 'playing' && (
+        <div className="absolute top-3 left-3 flex flex-wrap items-center gap-1.5 opacity-95 sm:opacity-0 sm:group-hover/vid:opacity-100 transition-opacity z-20">
+          {levels.length > 0 && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setQualityMenuOpen((v) => !v)}
+                title="Video quality"
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-black/75 text-white border border-white/20 text-[11px] font-mono hover:bg-black"
+              >
+                <SlidersHorizontal size={11} />
+                <span>
+                  {currentLevel === -1
+                    ? 'Auto'
+                    : levels.find((l) => l.index === currentLevel)?.label || 'Auto'}
+                </span>
+              </button>
+              {qualityMenuOpen && (
+                <div
+                  onMouseLeave={() => setQualityMenuOpen(false)}
+                  className="absolute left-0 top-8 w-28 rounded-lg bg-[#13151C] border border-[#252936] shadow-xl py-1 z-30"
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleSelectQuality(-1)}
+                    className={`w-full px-3 py-1.5 text-left text-[11px] font-mono ${
+                      currentLevel === -1
+                        ? 'text-[var(--sm-accent-text)] font-semibold'
+                        : 'text-white/80 hover:bg-white/10'
+                    }`}
+                  >
+                    Auto
+                  </button>
+                  {levels.map((lvl) => (
+                    <button
+                      key={lvl.index}
+                      type="button"
+                      onClick={() => handleSelectQuality(lvl.index)}
+                      className={`w-full px-3 py-1.5 text-left text-[11px] font-mono ${
+                        currentLevel === lvl.index
+                          ? 'text-[var(--sm-accent-text)] font-semibold'
+                          : 'text-white/80 hover:bg-white/10'
+                      }`}
+                    >
+                      {lvl.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setFillFrame((v) => !v)}
+            title={fillFrame ? 'Fit original aspect ratio' : 'Fill widescreen frame'}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-black/75 text-white border border-white/20 text-[11px] hover:bg-black"
+          >
+            <Maximize size={11} />
+            <span>{fillFrame ? 'Fit' : 'Fill'}</span>
+          </button>
+
+          {typeof document !== 'undefined' && document.pictureInPictureEnabled && (
+            <button
+              type="button"
+              onClick={handleTogglePip}
+              title="Picture-in-Picture floating window"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-black/75 text-white border border-white/20 text-[11px] hover:bg-black"
+            >
+              <PictureInPicture2 size={11} />
+              <span>PiP</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={handleSnapshot}
+            title="Capture video frame PNG"
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-black/75 text-white border border-white/20 text-[11px] hover:bg-black"
+          >
+            <Camera size={11} />
+            <span className="hidden sm:inline">Snap</span>
+          </button>
+
+          {snapshotNotice && (
+            <span className="px-2.5 py-1 rounded-md bg-black/85 text-white text-[11px]">
+              {snapshotNotice}
+            </span>
+          )}
+        </div>
+      )}
 
       {status === 'playing' && autoplayMuted && !muted && (
         <button
           type="button"
           onClick={handleUnmute}
-          className="absolute top-3 right-3 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[var(--sm-accent)] text-[var(--sm-on-accent)] text-xs font-semibold shadow-lg hover:opacity-90"
+          className="absolute top-3 right-3 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[var(--sm-accent)] text-[var(--sm-on-accent)] text-xs font-semibold shadow-lg hover:opacity-90 z-20"
         >
           <Volume2 size={14} />
           <span>Tap to Unmute</span>

@@ -11,6 +11,7 @@ import {
   FileText,
   Sparkles,
   ArrowLeftRight,
+  Film,
 } from 'lucide-react';
 import type { EqSettings, MusicTrack } from '../types/music';
 import { DEFAULT_EQ, EQ_BANDS, EQ_PRESETS, formatDuration } from '../utils/formatters';
@@ -35,6 +36,7 @@ interface ListeningRoomViewProps {
   onOpenStoreModal: (track: MusicTrack) => void;
   onSelectArtist: (artistId: string, artistName?: string) => void;
   onBrowseCatalog: () => void;
+  onWatchVideo?: () => void;
 }
 
 export function ListeningRoomView({
@@ -55,6 +57,7 @@ export function ListeningRoomView({
   onOpenStoreModal,
   onSelectArtist,
   onBrowseCatalog,
+  onWatchVideo,
 }: ListeningRoomViewProps) {
   const [lyrics, setLyrics] = useState<string | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
@@ -226,6 +229,17 @@ export function ListeningRoomView({
                 >
                   <ShoppingBag size={18} />
                 </button>
+                {(currentTrack.youtubeVideoId || currentTrack.videoUrl) && onWatchVideo && (
+                  <button
+                    type="button"
+                    onClick={onWatchVideo}
+                    title="Watch Video in Cinema"
+                    aria-label="Watch Video in Cinema"
+                    className="p-2.5 rounded-lg border border-[var(--sm-border)] text-[var(--sm-accent-text)] hover:bg-[var(--sm-accent-soft)]"
+                  >
+                    <Film size={18} />
+                  </button>
+                )}
               </div>
             </>
           ) : (

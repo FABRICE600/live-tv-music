@@ -154,7 +154,75 @@ export interface TvCategoryOption {
   count: number;
 }
 
+export interface LiveMatchTeam {
+  name: string;
+  shortName: string;
+  abbr: string;
+  logoUrl: string;
+  score: string;
+  record?: string;
+}
+
+export interface LiveMatchHighlight {
+  clock: string;
+  text: string;
+  teamAbbr?: string;
+}
+
+export interface LiveMatchStat {
+  label: string;
+  homeValue: string;
+  awayValue: string;
+}
+
+export interface LiveMatchPeriodScore {
+  period: string;
+  home: string;
+  away: string;
+}
+
+export interface LiveMatchRosterPlayer {
+  name: string;
+  jersey?: string;
+  position?: string;
+  starter?: boolean;
+}
+
+export interface LiveMatchDetails {
+  stats: LiveMatchStat[];
+  highlights: LiveMatchHighlight[];
+  homeLineup: LiveMatchRosterPlayer[];
+  awayLineup: LiveMatchRosterPlayer[];
+}
+
+export interface LiveMatchItem {
+  id: string;
+  sport: 'soccer' | 'basketball' | 'football' | 'hockey';
+  leagueId: string;
+  leagueName: string;
+  leagueShort: string;
+  statusState: 'in' | 'pre' | 'post';
+  statusDetail: string;
+  isLive: boolean;
+  startTime: string;
+  venue?: string;
+  broadcasts: string[];
+  homeTeam: LiveMatchTeam;
+  awayTeam: LiveMatchTeam;
+  highlights: LiveMatchHighlight[];
+  stats?: LiveMatchStat[];
+  periodScores?: LiveMatchPeriodScore[];
+}
+
+export interface LiveScoresResponse {
+  updatedAt: string;
+  liveCount: number;
+  matches: LiveMatchItem[];
+  sportsChannels: TvChannel[];
+}
+
 export type AppView =
+  | { type: 'home' }
   | { type: 'discover' }
   | { type: 'curated'; playlistId: string }
   | { type: 'browse'; initialGenre?: string; initialCountry?: string; initialPlatform?: string }
@@ -163,7 +231,13 @@ export type AppView =
   | { type: 'artist_profile'; artistId: string; artistName?: string }
   | { type: 'videos' }
   | { type: 'tv' }
+  | { type: 'matches' }
   | { type: 'listening_room' }
+  | { type: 'ai_studio'; initialTab?: 'music' | 'image' | 'video' | 'transcribe' }
+  | { type: 'assistant'; initialMode?: 'chat' | 'search' | 'maps'; initialPrompt?: string }
+  | { type: 'maps' }
+  | { type: 'stage_3d' }
+  | { type: 'game_3d' }
   | { type: 'stores' }
   | { type: 'history' }
   | { type: 'liked' }

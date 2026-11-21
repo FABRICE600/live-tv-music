@@ -14,10 +14,19 @@ import {
   ChevronRight,
   PictureInPicture2,
   Play,
+  Trophy,
+  Clock,
+  ArrowRight,
 } from 'lucide-react';
-import type { TvCategoryOption, TvChannel, TvCountryOption } from '../types/music';
+import type {
+  LiveMatchItem,
+  TvCategoryOption,
+  TvChannel,
+  TvCountryOption,
+} from '../types/music';
 import { CoverArtwork } from './CoverArtwork';
 import { HlsVideoPlayer } from './HlsVideoPlayer';
+import { fetchLiveSportsScoreboard } from '../services/footballApi';
 
 const QUICK_FEATURED_CHANNELS: TvChannel[] = [
   {
@@ -70,6 +79,22 @@ const QUICK_FEATURED_CHANNELS: TvChannel[] = [
     quality: '720p',
   },
   {
+    id: 'MagicSportTV.rw',
+    name: 'Magic Sport TV (RBA)',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['sports', 'general'],
+    logoUrl: '',
+    streamUrl: 'https://5c46fa289c89f.streamlock.net/rtv25/rtv/playlist.m3u8',
+    alternateUrls: [
+      'https://5c46fa289c89f.streamlock.net/pub1live/mystream/playlist.m3u8',
+      'https://bein-xtra-bein.amagi.tv/playlist.m3u8',
+    ],
+    quality: '720p',
+    website: 'https://www.rba.co.rw/',
+  },
+  {
     id: 'Vevo90s00s.uk',
     name: "Vevo '90s & '00s",
     countryCode: 'GB',
@@ -93,6 +118,7 @@ interface LiveTvViewProps {
   onEnableProxyRelay: () => void;
   onPopOutMiniPlayer: () => void;
   onPauseMusic: () => void;
+  onOpenMatches?: () => void;
 }
 
 function loadTvFavorites(): string[] {
@@ -114,11 +140,15 @@ export function LiveTvView({
   onEnableProxyRelay,
   onPopOutMiniPlayer,
   onPauseMusic,
+  onOpenMatches,
 }: LiveTvViewProps) {
   const [query, setQuery] = useState(initialQuery);
   const [country, setCountry] = useState('ALL');
   const [category, setCategory] = useState('all');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
+  const [liveMatches, setLiveMatches] = useState<LiveMatchItem[]>([]);
+  const [sportsChannels, setSportsChannels] = useState<TvChannel[]>([]);
 
   const [channels, setChannels] = useState<TvChannel[]>([]);
   const [countries, setCountries] = useState<TvCountryOption[]>([]);
@@ -143,7 +173,7 @@ export function LiveTvView({
   }, [favoriteIds]);
 
   const fetchChannels = useCallback(
-    async (nextOffset = 0, append = false) => {
+    async (nextOffset = 0, append = false, batchLimit = 96) => {
       if (append) setLoadingMore(true);
       else setLoading(true);
 
@@ -152,14 +182,19 @@ export function LiveTvView({
           q: query.trim(),
           country,
           category,
-          limit: '48',
+          limit: String(batchLimit),
           offset: String(nextOffset),
         });
+        if (verifiedOnly) params.set('verified', '1');
         const res = await fetch(`/api/tv/channels?${params.toString()}`);
         const data = await res.json();
         const incoming: TvChannel[] = data.channels || [];
 
-        setChannels((prev) => (append ? [...prev, ...incoming] : incoming));
+        setChannels((prev) => {
+          if (!append) return incoming;
+          const seen = new Set(prev.map((c) => c.id));
+          return [...prev, ...incoming.filter((c) => !seen.has(c.id))];
+        });
         setTotalFiltered(data.total || incoming.length);
         setTotalWorldwide(data.totalWorldwide || incoming.length);
         if (Array.isArray(data.countries) && data.countries.length > 0) {
@@ -176,12 +211,12 @@ export function LiveTvView({
         setLoadingMore(false);
       }
     },
-    [query, country, category],
+    [query, country, category, verifiedOnly],
   );
 
   useEffect(() => {
     fetchChannels(0, false);
-  }, [country, category, initialQuery]);
+  }, [country, category, verifiedOnly, initialQuery]);
 
   // Automatically start live TV video playback on first visit so video is immediately visible
   useEffect(() => {
@@ -189,6 +224,26 @@ export function LiveTvView({
       onSelectChannel(channels[0]);
     }
   }, [activeChannel, loading, channels, onSelectChannel]);
+
+  // Fetch compact Live Scores & Match TV strip with 45s auto-refresh
+  useEffect(() => {
+    let active = true;
+    const loadScores = () => {
+      fetchLiveSportsScoreboard()
+        .then((data) => {
+          if (!active) return;
+          if (Array.isArray(data.matches)) setLiveMatches(data.matches.slice(0, 6));
+          if (Array.isArray(data.sportsChannels)) setSportsChannels(data.sportsChannels);
+        })
+        .catch(() => {});
+    };
+    loadScores();
+    const timer = window.setInterval(loadScores, 45000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const toggleFavorite = (id: string) => {
     setFavoriteIds((prev) =>
@@ -237,13 +292,56 @@ export function LiveTvView({
         <div>
           <p className="text-xs font-medium text-[var(--sm-text-muted)] mb-1">
             Global TV Theatre ·{' '}
-            <span className="font-mono tabular-nums">{totalWorldwide.toLocaleString()}</span> Live Channels Worldwide
+            <span className="font-mono tabular-nums">
+              {totalWorldwide > 0 ? totalWorldwide.toLocaleString() : '800+'}
+            </span>{' '}
+            Live Channels Worldwide ·{' '}
+            <span className="font-mono tabular-nums">{countries.length || '100+'}</span> Countries
           </p>
           <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-[var(--sm-text)]">
             Watch Live TV
           </h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setCategory((c) => (c === 'sports' ? 'all' : 'sports'));
+              setFavoritesOnly(false);
+            }}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap ${
+              category === 'sports'
+                ? 'border-[var(--sm-accent)] bg-[var(--sm-accent-soft)] text-[var(--sm-accent-text)] font-semibold'
+                : 'border-[var(--sm-border)] bg-[var(--sm-surface)] text-[var(--sm-text-sec)] hover:text-[var(--sm-text)]'
+            }`}
+          >
+            <Trophy size={13} />
+            <span>Live Match TV</span>
+          </button>
+          {onOpenMatches && (
+            <button
+              type="button"
+              onClick={onOpenMatches}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-[var(--sm-border)] bg-[var(--sm-surface)] text-xs font-medium text-[var(--sm-text)] hover:border-[var(--sm-accent)] transition-colors whitespace-nowrap"
+            >
+              <Radio size={13} className="text-[#15803D] dark:text-emerald-400" />
+              <span>Live Scores</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setCategory((c) => (c === 'music' ? 'all' : 'music'));
+              setFavoritesOnly(false);
+            }}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap ${
+              category === 'music'
+                ? 'border-[var(--sm-accent)] bg-[var(--sm-accent-soft)] text-[var(--sm-accent-text)]'
+                : 'border-[var(--sm-border)] bg-[var(--sm-surface)] text-[var(--sm-text-sec)] hover:text-[var(--sm-text)]'
+            }`}
+          >
+            <span>Music TV</span>
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -258,6 +356,19 @@ export function LiveTvView({
             }`}
           >
             <span>🇷🇼 Rwanda TV</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setVerifiedOnly((v) => !v)}
+            title="Filter to fast live-checked HLS relays"
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap ${
+              verifiedOnly
+                ? 'border-[var(--sm-accent)] bg-[var(--sm-accent-soft)] text-[var(--sm-accent-text)]'
+                : 'border-[var(--sm-border)] bg-[var(--sm-surface)] text-[var(--sm-text-sec)] hover:text-[var(--sm-text)]'
+            }`}
+          >
+            <ShieldCheck size={13} />
+            <span>{verifiedOnly ? 'Verified Only' : 'All 800+ Channels'}</span>
           </button>
           <button
             type="button"
@@ -469,6 +580,110 @@ export function LiveTvView({
         </div>
       </section>
 
+      {/* Live & Upcoming Match Scores Strip */}
+      {liveMatches.length > 0 && (
+        <section className="space-y-3 border border-[var(--sm-border)] rounded-2xl bg-[var(--sm-surface)] p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Trophy size={15} className="text-[var(--sm-accent-text)]" />
+              <h2 className="font-display text-base font-bold text-[var(--sm-text)]">
+                Live &amp; Upcoming Match Scores
+              </h2>
+            </div>
+            <div className="flex items-center gap-3">
+              {sportsChannels.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    userStoppedRef.current = false;
+                    onSelectChannel(sportsChannels[0]);
+                  }}
+                  className="text-xs font-medium text-[var(--sm-text-sec)] hover:text-[var(--sm-text)] whitespace-nowrap"
+                >
+                  Tune Sports TV ({sportsChannels[0].name})
+                </button>
+              )}
+              {onOpenMatches && (
+                <button
+                  type="button"
+                  onClick={onOpenMatches}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-[var(--sm-accent-text)] hover:underline whitespace-nowrap"
+                >
+                  <span>All Scores &amp; Match TV</span>
+                  <ArrowRight size={13} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {liveMatches.map((m) => {
+              const showScore = m.statusState !== 'pre';
+              return (
+                <div
+                  key={m.id}
+                  onClick={() => {
+                    if (sportsChannels.length > 0) {
+                      userStoppedRef.current = false;
+                      onSelectChannel(sportsChannels[0]);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      if (sportsChannels.length > 0) {
+                        userStoppedRef.current = false;
+                        onSelectChannel(sportsChannels[0]);
+                      }
+                    }
+                  }}
+                  className="cursor-pointer rounded-xl border border-[var(--sm-border)] bg-[var(--sm-bg)]/70 hover:border-[var(--sm-accent)] p-3 transition-colors space-y-2"
+                >
+                  <div className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="text-[var(--sm-text-muted)] truncate">{m.leagueShort}</span>
+                    {m.isLive ? (
+                      <span className="inline-flex items-center gap-1 font-mono tabular-nums font-semibold text-[#15803D] dark:text-emerald-400 shrink-0">
+                        <Radio size={10} />
+                        <span>LIVE · {m.statusDetail}</span>
+                      </span>
+                    ) : m.statusState === 'pre' ? (
+                      <span className="inline-flex items-center gap-1 font-mono tabular-nums text-[var(--sm-accent-text)] shrink-0">
+                        <Clock size={10} />
+                        <span>{m.statusDetail}</span>
+                      </span>
+                    ) : (
+                      <span className="font-mono tabular-nums text-[var(--sm-text-muted)] shrink-0">
+                        FINAL
+                      </span>
+                    )}
+                  </div>
+                  <div className="space-y-1 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-[var(--sm-text)] truncate">
+                        {m.homeTeam.shortName || m.homeTeam.name}
+                      </span>
+                      <span className="font-mono tabular-nums font-bold text-[var(--sm-text)]">
+                        {showScore ? m.homeTeam.score : '–'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-[var(--sm-text)] truncate">
+                        {m.awayTeam.shortName || m.awayTeam.name}
+                      </span>
+                      <span className="font-mono tabular-nums font-bold text-[var(--sm-text)]">
+                        {showScore ? m.awayTeam.score : '–'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {/* Search & Country + Category Filters */}
       <div className="space-y-3">
         <form onSubmit={handleSearchSubmit} className="flex flex-col sm:flex-row gap-3">
@@ -620,17 +835,27 @@ export function LiveTvView({
           </div>
 
           {!favoritesOnly && channels.length < totalFiltered && (
-            <div className="flex items-center justify-center pt-4">
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-4">
               <button
                 type="button"
                 disabled={loadingMore}
-                onClick={() => fetchChannels(offset, true)}
-                className="px-5 py-2.5 rounded-lg border border-[var(--sm-border)] bg-[var(--sm-surface)] text-xs font-medium text-[var(--sm-text)] hover:bg-[var(--sm-muted)] disabled:opacity-50"
+                onClick={() => fetchChannels(offset, true, 96)}
+                className="px-5 py-2.5 rounded-lg border border-[var(--sm-border)] bg-[var(--sm-surface)] text-xs font-medium text-[var(--sm-text)] hover:bg-[var(--sm-muted)] disabled:opacity-50 font-mono tabular-nums"
               >
                 {loadingMore
                   ? 'Loading channels...'
-                  : `Load More Channels (${channels.length} of ${totalFiltered.toLocaleString()})`}
+                  : `Load More Channels (${channels.length.toLocaleString()} of ${totalFiltered.toLocaleString()})`}
               </button>
+              {totalFiltered - channels.length > 96 && (
+                <button
+                  type="button"
+                  disabled={loadingMore}
+                  onClick={() => fetchChannels(offset, true, 200)}
+                  className="px-4 py-2.5 rounded-lg border border-[var(--sm-border)] bg-[var(--sm-bg)] text-xs font-medium text-[var(--sm-accent-text)] hover:border-[var(--sm-accent)] disabled:opacity-50 font-mono tabular-nums"
+                >
+                  Load +200
+                </button>
+              )}
             </div>
           )}
         </>

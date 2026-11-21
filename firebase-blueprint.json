@@ -1,0 +1,91 @@
+{
+  "entities": {
+    "UserPublicProfile": {
+      "title": "User Public Profile",
+      "description": "Publicly readable non-PII listener profile stored at /users/{userId}.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "photoUrl": { "type": "string", "maxLength": 512 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "displayName", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "User Private Info",
+      "description": "Strictly owner-only PII document containing user email.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "email": { "type": "string", "format": "email", "minLength": 3, "maxLength": 254 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "email", "updatedAt"]
+    },
+    "UserLibraryState": {
+      "title": "User Library State",
+      "description": "Synced liked track IDs and pinned match IDs owned by the authenticated listener.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "likedIds": { "type": "array", "description": "Bounded list of up to 200 liked track IDs." },
+        "pinnedMatchIds": { "type": "array", "description": "Bounded list of up to 50 pinned match IDs." },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "likedIds", "pinnedMatchIds", "updatedAt"]
+    },
+    "UserPlaylistDoc": {
+      "title": "User Playlist Document",
+      "description": "Custom playlist created and owned by an authenticated listener.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 300 },
+        "trackIds": { "type": "array", "description": "Bounded list of up to 200 track IDs." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "name", "trackIds", "createdAt", "updatedAt"]
+    },
+    "CommunityStageScore": {
+      "title": "Community 3D Stage Rhythm Score",
+      "description": "Immutable verified score entry submitted by an authenticated listener for the 3D Stage Rhythm Game.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "playerName": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "score": { "type": "integer" },
+        "maxCombo": { "type": "integer" },
+        "accuracy": { "type": "integer" },
+        "difficulty": { "type": "string", "enum": ["chill", "studio", "encore"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "playerName", "score", "maxCombo", "accuracy", "difficulty", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserPublicProfile" },
+      "description": "Non-PII public profile document for a Soundmark user."
+    },
+    "/users/{userId}/private/info": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Isolated PII document storing user email, readable and writable only by the owner."
+    },
+    "/users/{userId}/library/state": {
+      "schema": { "$ref": "#/entities/UserLibraryState" },
+      "description": "Owner-only synced library state (liked tracks and pinned matches)."
+    },
+    "/users/{userId}/playlists/{playlistId}": {
+      "schema": { "$ref": "#/entities/UserPlaylistDoc" },
+      "description": "Owner-only user-created music playlists."
+    },
+    "/stageScores/{scoreId}": {
+      "schema": { "$ref": "#/entities/CommunityStageScore" },
+      "description": "Immutable 3D Rhythm Stage Game leaderboard scores."
+    }
+  }
+}

@@ -7,6 +7,8 @@ import type {
   ArtistSummary,
   CuratedPlaylist,
   DiscoverCatalog,
+  LiveMatchHighlight,
+  LiveMatchItem,
   MusicStoreDirectoryItem,
   MusicTrack,
   SpotifyCuratedPlaylist,
@@ -15,11 +17,27 @@ import type {
   TvChannel,
   TvCountryOption,
 } from './src/types/music.ts';
+import { registerGeminiRoutes } from './src/server/geminiRoutes.ts';
+import { optionalAuth, requireAuth, type AuthRequest } from './src/middleware/auth.ts';
+import {
+  deleteSavedVenueForUid,
+  deleteStudioCreationForUid,
+  getLeaderboard,
+  getOrCreateUser,
+  getSavedVenuesByUid,
+  getStudioCreationsByUid,
+  saveGameScore,
+  saveStudioCreationForUid,
+  saveVenueForUid,
+} from './src/db/users.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = Number(process.env.PORT) || 3000;
+const portArgIdx = process.argv.indexOf('--port');
+const cliPort = portArgIdx >= 0 ? Number(process.argv[portArgIdx + 1]) : NaN;
+const PORT =
+  Number.isFinite(cliPort) && cliPort > 0 ? cliPort : Number(process.env.PORT) || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
 
 // Curated generated artwork paths served statically from /src/assets/images
@@ -1371,10 +1389,178 @@ async function buildDiscoverCatalog(forceRefresh = false): Promise<DiscoverCatal
 }
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 // Serve generated cover artwork cleanly in both dev & production
 app.use('/src/assets/images', express.static(path.resolve(__dirname, 'src/assets/images')));
+
+// Public non-secret runtime configuration (Google Maps GHP / client key)
+app.get('/api/config/public', (_req: Request, res: Response) => {
+  const mapsApiKey =
+    process.env.VITE_GOOGLE_MAPS_API_KEY ||
+    process.env.GOOGLE_MAPS_API_KEY ||
+    process.env.MAPS_API_KEY ||
+    '';
+  res.json({ mapsApiKey });
+});
+
+// Mount Server-side Gemini AI Studio & Grounding Routes
+registerGeminiRoutes(app);
+
+// Cloud SQL Persistence Endpoints (Firebase Admin Bearer Protected)
+app.post('/api/sql/profile', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const uid = req.user!.uid;
+    const email = req.user!.email || `${uid}@soundmark.local`;
+    const displayName =
+      (typeof req.body?.displayName === 'string' && req.body.displayName.trim()) ||
+      req.user!.name ||
+      null;
+    const photoUrl =
+      (typeof req.body?.photoUrl === 'string' && req.body.photoUrl.trim()) ||
+      req.user!.picture ||
+      null;
+    const user = await getOrCreateUser(uid, email, displayName, photoUrl);
+    res.json({ user: { id: user.id, displayName: user.displayName, photoUrl: user.photoUrl } });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Profile sync failed.' });
+  }
+});
+
+app.get('/api/sql/creations', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const creations = await getStudioCreationsByUid(req.user!.uid);
+    res.json({ creations });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to load creations.' });
+  }
+});
+
+app.post('/api/sql/creations', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { kind, title, prompt, model, mediaUrl, metadataJson } = req.body || {};
+    if (!kind || !title || !prompt || !model) {
+      return res.status(400).json({ error: 'Missing creation fields.' });
+    }
+    const created = await saveStudioCreationForUid(
+      req.user!.uid,
+      req.user!.email || `${req.user!.uid}@soundmark.local`,
+      {
+        kind: String(kind).slice(0, 32),
+        title: String(title).slice(0, 120),
+        prompt: String(prompt).slice(0, 1000),
+        model: String(model).slice(0, 64),
+        mediaUrl: typeof mediaUrl === 'string' && mediaUrl.length <= 2500000 ? mediaUrl : null,
+        metadataJson: typeof metadataJson === 'string' ? metadataJson.slice(0, 8000) : null,
+      },
+      req.user!.name || null,
+      req.user!.picture || null,
+    );
+    res.status(201).json({ creation: created });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to save creation.' });
+  }
+});
+
+app.delete('/api/sql/creations/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid creation ID.' });
+    }
+    const deleted = await deleteStudioCreationForUid(req.user!.uid, id);
+    res.json({ deleted });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Delete failed.' });
+  }
+});
+
+app.get('/api/sql/venues', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const venues = await getSavedVenuesByUid(req.user!.uid);
+    res.json({ venues });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to load venues.' });
+  }
+});
+
+app.post('/api/sql/venues', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { placeId, name, address, category, lat, lng } = req.body || {};
+    if (!placeId || !name || !address || lat === undefined || lng === undefined) {
+      return res.status(400).json({ error: 'Missing venue coordinates or identity.' });
+    }
+    const venue = await saveVenueForUid(
+      req.user!.uid,
+      req.user!.email || `${req.user!.uid}@soundmark.local`,
+      {
+        placeId: String(placeId).slice(0, 200),
+        name: String(name).slice(0, 140),
+        address: String(address).slice(0, 260),
+        category: String(category || 'Venue').slice(0, 60),
+        lat: String(lat).slice(0, 32),
+        lng: String(lng).slice(0, 32),
+      },
+      req.user!.name || null,
+      req.user!.picture || null,
+    );
+    res.status(201).json({ venue });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to save venue.' });
+  }
+});
+
+app.delete('/api/sql/venues/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid venue ID.' });
+    }
+    const deleted = await deleteSavedVenueForUid(req.user!.uid, id);
+    res.json({ deleted });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Delete failed.' });
+  }
+});
+
+app.get('/api/sql/leaderboard', async (_req: Request, res: Response) => {
+  try {
+    const scores = await getLeaderboard(20);
+    res.json({ scores });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to load leaderboard.' });
+  }
+});
+
+app.post('/api/sql/leaderboard', optionalAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { playerName, score, maxCombo, accuracy, difficulty } = req.body || {};
+    const numScore = Math.max(0, Math.min(10000000, Math.round(Number(score) || 0)));
+    const numCombo = Math.max(0, Math.min(10000, Math.round(Number(maxCombo) || 0)));
+    const numAcc = Math.max(0, Math.min(100, Math.round(Number(accuracy) || 0)));
+    const diff = ['chill', 'studio', 'encore'].includes(String(difficulty))
+      ? String(difficulty)
+      : 'studio';
+    const cleanName = String(playerName || req.user?.name || 'Guest Producer')
+      .trim()
+      .slice(0, 60);
+
+    const saved = await saveGameScore({
+      uid: req.user?.uid || null,
+      email: req.user?.email || null,
+      displayName: req.user?.name || null,
+      photoUrl: req.user?.picture || null,
+      playerName: cleanName || 'Guest Producer',
+      score: numScore,
+      maxCombo: numCombo,
+      accuracy: numAcc,
+      difficulty: diff,
+    });
+    res.status(201).json({ score: saved });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to submit score.' });
+  }
+});
 
 // 1. Discover Catalog
 app.get('/api/music/discover', async (req: Request, res: Response) => {
@@ -1518,6 +1704,224 @@ app.get('/api/music/search', async (req: Request, res: Response) => {
     });
   } catch {
     res.status(500).json({ error: 'Search failed', tracks: RESILIENT_FALLBACK_TRACKS });
+  }
+});
+
+// 2c. Dedicated Music Videos, Live Sessions & Visual Cinema Endpoint
+const videoCatalogCache = new Map<string, { ts: number; videos: MusicTrack[] }>();
+const FALLBACK_VIDEOS: MusicTrack[] = [
+  {
+    id: 'yt-q0hyYWKXF0Q',
+    title: 'Dance Monkey (Official Music Video)',
+    artist: 'Tones and I',
+    genre: 'Music Video',
+    country: 'Australia',
+    durationSec: 236,
+    audioUrl: 'https://www.youtube.com/watch?v=q0hyYWKXF0Q',
+    youtubeVideoId: 'q0hyYWKXF0Q',
+    isVideo: true,
+    coverUrl: 'https://i.ytimg.com/vi/q0hyYWKXF0Q/hqdefault.jpg',
+    year: '2019',
+    license: 'Official Music Video',
+    sourceLabel: 'YouTube Video',
+    bitrateLabel: 'HD Video',
+    storeLinks: buildStoreLinks('Tones and I', 'Dance Monkey'),
+  },
+  {
+    id: 'yt-OPf0YbXqDm0',
+    title: 'Uptown Funk (Official Video)',
+    artist: 'Mark Ronson ft. Bruno Mars',
+    genre: 'Music Video',
+    country: 'United Kingdom',
+    durationSec: 270,
+    audioUrl: 'https://www.youtube.com/watch?v=OPf0YbXqDm0',
+    youtubeVideoId: 'OPf0YbXqDm0',
+    isVideo: true,
+    coverUrl: 'https://i.ytimg.com/vi/OPf0YbXqDm0/hqdefault.jpg',
+    year: '2014',
+    license: 'Official Music Video',
+    sourceLabel: 'YouTube Video',
+    bitrateLabel: 'HD Video',
+    storeLinks: buildStoreLinks('Mark Ronson Bruno Mars', 'Uptown Funk'),
+  },
+];
+
+app.get('/api/videos/catalog', async (req: Request, res: Response) => {
+  const q = String(req.query.q || '').trim();
+  const category = String(req.query.category || 'all').trim().toLowerCase();
+  const cacheKey = `${category}::${q.toLowerCase()}`;
+  const cached = videoCatalogCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < 8 * 60 * 1000) {
+    return res.json({ videos: cached.videos, category, query: q });
+  }
+
+  try {
+    let queries: Array<{ q: string; genre: string; country: string }> = [];
+    if (q) {
+      queries = [
+        { q: `${q} official music video`, genre: 'Music Video', country: 'Global' },
+        { q: `${q} live session concert`, genre: 'Live Session', country: 'Global' },
+      ];
+    } else if (category === 'rwanda') {
+      queries = [
+        { q: 'Bruce Melodie official music video', genre: 'Rwanda Video', country: 'Rwanda' },
+        { q: 'Meddy official music video Rwanda', genre: 'Rwanda Video', country: 'Rwanda' },
+        { q: 'Chriss Eazy official music video', genre: 'Rwanda Video', country: 'Rwanda' },
+        { q: 'Israel Mbonyi official video', genre: 'Rwanda Video', country: 'Rwanda' },
+      ];
+    } else if (category === 'live_sessions') {
+      queries = [
+        { q: 'Tiny Desk Concert full live session', genre: 'Live Session', country: 'Global' },
+        { q: 'KEXP live performance full', genre: 'Live Session', country: 'Global' },
+        { q: 'COLORS SHOW live session', genre: 'Live Session', country: 'Global' },
+      ];
+    } else if (category === 'cinema') {
+      queries = [
+        { q: 'ambient electronic live modular visual performance', genre: 'Visual Cinema', country: 'Global' },
+        { q: 'acoustic jazz quartet studio live video', genre: 'Visual Cinema', country: 'Global' },
+      ];
+    } else {
+      queries = [
+        { q: 'official music video 2025 hits', genre: 'Music Video', country: 'Global' },
+        { q: 'Bruce Melodie Chriss Eazy Meddy official video', genre: 'Rwanda Video', country: 'Rwanda' },
+        { q: 'Tiny Desk Concert live music session', genre: 'Live Session', country: 'Global' },
+      ];
+    }
+
+    const ytBatches = await Promise.all(
+      queries.map((item) =>
+        searchYouTubeFullTracks(item.q, undefined, item.country, 12).then((r) =>
+          r.tracks.map((t) => ({
+            ...t,
+            genre: item.genre,
+            isVideo: true,
+            sourceLabel: 'Music Video',
+            bitrateLabel: 'HD Video',
+          })),
+        ),
+      ),
+    );
+
+    const archiveVideos: MusicTrack[] = [];
+    if (category === 'cinema' || category === 'all') {
+      const iaQuery = q
+        ? `(${q}) AND mediatype:movies AND subject:(music OR concert OR live)`
+        : 'mediatype:movies AND subject:(concert OR music video OR jazz) -title:TOSEC';
+      const iaParams = new URLSearchParams({
+        q: iaQuery,
+        'fl[]': 'identifier,title,creator,year',
+        rows: '4',
+        page: '1',
+        output: 'json',
+        'sort[]': 'downloads desc',
+      });
+      const iaRes = await fetchJsonWithTimeout<{ response?: { docs?: ArchiveDocRaw[] } }>(
+        `https://archive.org/advancedsearch.php?${iaParams.toString()}`,
+        4000,
+      );
+      const docs = (iaRes?.response?.docs || []).filter(
+        (d) => !/tosec|dat pack|romset|firmware/i.test(d.title || d.identifier),
+      );
+      const metaEntries = await Promise.all(
+        docs.slice(0, 3).map(async (doc) => {
+          const meta = await fetchJsonWithTimeout<{
+            files?: Array<{ name: string; format?: string; length?: string }>;
+          }>(`https://archive.org/metadata/${encodeURIComponent(doc.identifier)}`, 3000);
+          return { doc, meta };
+        }),
+      );
+      for (const { doc, meta } of metaEntries) {
+        const mp4 = meta?.files?.find(
+          (f) => f.name.toLowerCase().endsWith('.mp4') && !f.name.toLowerCase().includes('.thumbs'),
+        );
+        if (!mp4) continue;
+        const artist = Array.isArray(doc.creator)
+          ? doc.creator[0]
+          : doc.creator || 'Internet Archive Film';
+        const title = doc.title || doc.identifier;
+        const rawVideoUrl = `https://archive.org/download/${encodeURIComponent(doc.identifier)}/${encodeURIComponent(mp4.name)}`;
+        archiveVideos.push({
+          id: `ia-vid-${doc.identifier}`,
+          title,
+          artist,
+          album: 'Open Cinema Archive',
+          genre: 'Visual Cinema',
+          country: 'Global',
+          durationSec: Math.round(Number(mp4.length)) || 240,
+          audioUrl: proxyStreamUrl(rawVideoUrl),
+          videoUrl: proxyStreamUrl(rawVideoUrl),
+          isVideo: true,
+          coverUrl: `https://archive.org/services/img/${encodeURIComponent(doc.identifier)}`,
+          year: doc.year ? String(doc.year).slice(0, 4) : 'Archive',
+          license: 'Open Archive · HD MP4',
+          sourceLabel: 'Archive Cinema',
+          bitrateLabel: 'MP4 Video',
+          storeLinks: buildStoreLinks(artist, title),
+        });
+      }
+    }
+
+    const dedup = new Map<string, MusicTrack>();
+    const orderedSources =
+      category === 'cinema'
+        ? [...archiveVideos, ...ytBatches.flat()]
+        : [...ytBatches.flat(), ...archiveVideos];
+    for (const v of orderedSources) {
+      if (!dedup.has(v.id)) dedup.set(v.id, v);
+    }
+    let videos = Array.from(dedup.values());
+    if (videos.length === 0) videos = FALLBACK_VIDEOS;
+
+    videoCatalogCache.set(cacheKey, { ts: Date.now(), videos: videos.slice(0, 36) });
+    res.json({ videos: videos.slice(0, 36), category, query: q });
+  } catch {
+    res.json({ videos: FALLBACK_VIDEOS, category, query: q });
+  }
+});
+
+// 2c. Resolve Official Music Video on demand for any track (Audius / Archive / Library)
+const videoResolveCache = new Map<
+  string,
+  { ts: number; videoId: string | null; title?: string; thumbnail?: string; durationSec?: number }
+>();
+
+app.get('/api/videos/resolve', async (req: Request, res: Response) => {
+  const artist = String(req.query.artist || '').replace(/^@/, '').trim();
+  const title = String(req.query.title || '').trim();
+  if (!title && !artist) {
+    return res.status(400).json({ videoId: null, error: 'Missing track metadata' });
+  }
+
+  const key = `${artist.toLowerCase()}::${title.toLowerCase()}`;
+  const cached = videoResolveCache.get(key);
+  if (cached && Date.now() - cached.ts < 20 * 60 * 1000) {
+    return res.json(cached);
+  }
+
+  try {
+    const cleanTitle = title.replace(/\([^)]*\)|\[[^\]]*\]/g, '').trim() || title;
+    const primaryQuery = `${artist} ${cleanTitle} official music video`.trim();
+    let results = await fetchYouTubeSearchRaw(primaryQuery);
+    if (results.length === 0) {
+      results = await fetchYouTubeSearchRaw(`${artist} ${cleanTitle} music video`.trim());
+    }
+
+    const best =
+      results.find((v) => v.durationSec >= 45 && v.durationSec <= 900) || results[0] || null;
+    const payload = best
+      ? {
+          ts: Date.now(),
+          videoId: best.id,
+          title: best.title,
+          thumbnail: best.thumbnail,
+          durationSec: best.durationSec,
+        }
+      : { ts: Date.now(), videoId: null };
+
+    videoResolveCache.set(key, payload);
+    return res.json(payload);
+  } catch {
+    return res.json({ videoId: null });
   }
 });
 
@@ -2029,6 +2433,81 @@ const VERIFIED_FEATURED_TV: TvChannel[] = [
     streamUrl: 'https://a-cdn.klowdtv.com/live3/clubbingtv_720p/playlist.m3u8',
     quality: '720p',
   },
+  {
+    id: 'MagicSportTV.rw',
+    name: 'Magic Sport TV (RBA)',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['sports', 'general'],
+    logoUrl: '',
+    streamUrl: 'https://5c46fa289c89f.streamlock.net/rtv25/rtv/playlist.m3u8',
+    alternateUrls: [
+      'https://5c46fa289c89f.streamlock.net/pub1live/mystream/playlist.m3u8',
+      'https://bein-xtra-bein.amagi.tv/playlist.m3u8',
+    ],
+    quality: '720p',
+    website: 'https://www.rba.co.rw/',
+  },
+  {
+    id: 'beINSPORTSXTRA.us',
+    name: 'beIN SPORTS XTRA',
+    countryCode: 'US',
+    countryName: 'United States',
+    countryFlag: '🇺🇸',
+    categories: ['sports'],
+    logoUrl: '',
+    streamUrl: 'https://bein-xtra-bein.amagi.tv/playlist.m3u8',
+    alternateUrls: ['https://dc1644a9jazgj.cloudfront.net/beIN_Sports_Xtra_Espanol.m3u8'],
+    quality: '1080p',
+    website: 'https://www.beinsportsxtra.com/',
+  },
+  {
+    id: 'FIFAPlus.uk',
+    name: 'FIFA+',
+    countryCode: 'GB',
+    countryName: 'United Kingdom',
+    countryFlag: '🇬🇧',
+    categories: ['sports'],
+    logoUrl: '',
+    streamUrl:
+      'https://a62dad94.wurl.com/master/f36d25e7e52f1ba8d7e56eb859c636563214f541/UmFrdXRlblRWLWV1X0ZJRkFQbHVzRW5nbGlzaF9ITFM/playlist.m3u8',
+    quality: '1080p',
+    website: 'https://www.plus.fifa.com/',
+  },
+  {
+    id: 'CBSSportsHQ.us',
+    name: 'CBS Sports HQ',
+    countryCode: 'US',
+    countryName: 'United States',
+    countryFlag: '🇺🇸',
+    categories: ['sports', 'news'],
+    logoUrl: '',
+    streamUrl: 'https://jmp2.uk/plu-5e9f2c05172a0f0007db4786.m3u8',
+    quality: '1080p',
+  },
+  {
+    id: 'RealMadridTV.es',
+    name: 'Real Madrid TV',
+    countryCode: 'ES',
+    countryName: 'Spain',
+    countryFlag: '🇪🇸',
+    categories: ['sports'],
+    logoUrl: '',
+    streamUrl: 'https://rmtv.akamaized.net/hls/live/2043153/rmtv-es-web/master.m3u8',
+    quality: '1080p',
+  },
+  {
+    id: 'RedBullTV.at',
+    name: 'Red Bull TV',
+    countryCode: 'AT',
+    countryName: 'Austria',
+    countryFlag: '🇦🇹',
+    categories: ['sports', 'entertainment'],
+    logoUrl: '',
+    streamUrl: 'https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8',
+    quality: '1080p',
+  },
 ];
 
 function scoreStreamHost(url: string): number {
@@ -2051,6 +2530,130 @@ function scoreStreamHost(url: string): number {
   return 5 + httpsBonus;
 }
 
+async function fetchTextWithTimeout(url: string, timeoutMs = 15000): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'SoundmarkAudioPlatform/1.0',
+        Accept: 'text/plain, application/x-mpegURL, */*',
+      },
+    });
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const regionDisplay =
+  typeof Intl !== 'undefined' && typeof Intl.DisplayNames === 'function'
+    ? new Intl.DisplayNames(['en'], { type: 'region' })
+    : null;
+
+function countryFlagFromCode(code: string): string {
+  const clean = code.toUpperCase();
+  if (!/^[A-Z]{2}$/.test(clean)) return '🌐';
+  return String.fromCodePoint(...clean.split('').map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
+}
+
+function countryNameFromCode(code: string): string {
+  const clean = code.toUpperCase();
+  if (!/^[A-Z]{2}$/.test(clean)) return 'International';
+  try {
+    return regionDisplay?.of(clean) || clean;
+  } catch {
+    return clean;
+  }
+}
+
+interface ParsedM3uEntry {
+  id: string;
+  name: string;
+  countryCode: string;
+  categories: string[];
+  logoUrl: string;
+  streamUrl: string;
+  quality: string;
+}
+
+function parseM3uAttr(line: string, attr: string): string {
+  const re = new RegExp(`${attr}=(?:"([^"]*)"|'([^']*)')`, 'i');
+  const m = line.match(re);
+  return (m?.[1] || m?.[2] || '').trim();
+}
+
+function normalizeCategorySlug(raw: string): string {
+  const first = raw.split(/[;,/]/)[0]?.trim().toLowerCase() || 'general';
+  if (!first || first === 'undefined' || first === 'xxx' || first === 'adult') return 'general';
+  return first.replace(/[^a-z0-9-]+/g, '') || 'general';
+}
+
+function parseM3uPlaylist(text: string, fallbackCountry = 'INT', maxEntries = 6500): ParsedM3uEntry[] {
+  const lines = text.split(/\r?\n/);
+  const entries: ParsedM3uEntry[] = [];
+  let pendingInfo = '';
+
+  for (let i = 0; i < lines.length && entries.length < maxEntries; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    if (line.startsWith('#EXTINF')) {
+      pendingInfo = line;
+      continue;
+    }
+    if (line.startsWith('#')) continue;
+
+    if (!/^https?:\/\//i.test(line)) {
+      pendingInfo = '';
+      continue;
+    }
+
+    const tvgId = parseM3uAttr(pendingInfo, 'tvg-id');
+    const tvgName = parseM3uAttr(pendingInfo, 'tvg-name');
+    const tvgLogo = parseM3uAttr(pendingInfo, 'tvg-logo');
+    const tvgCountry = parseM3uAttr(pendingInfo, 'tvg-country').toUpperCase();
+    const groupTitle = parseM3uAttr(pendingInfo, 'group-title');
+    const commaIdx = pendingInfo.lastIndexOf(',');
+    const displayName = (commaIdx >= 0 ? pendingInfo.slice(commaIdx + 1) : tvgName || 'Live Broadcast').trim();
+
+    if (/adult|nsfw|18\+|xxx/i.test(`${groupTitle} ${displayName}`)) {
+      pendingInfo = '';
+      continue;
+    }
+
+    const qualityMatch = displayName.match(/\b(4K|2160p|1080p|720p|576p|480p|360p)\b/i);
+    const cleanName = displayName.replace(/\s*[\[(]?(4K|2160p|1080p|720p|576p|480p|360p|Geo-blocked|Not 24\/7)[\])]?/gi, '').trim() || displayName;
+
+    let derivedCountry = fallbackCountry;
+    if (tvgCountry && /^[A-Z]{2}$/.test(tvgCountry)) {
+      derivedCountry = tvgCountry;
+    } else if (tvgId.includes('.')) {
+      const suffix = tvgId.split('.').pop()?.split('@')[0]?.toUpperCase() || '';
+      if (/^[A-Z]{2}$/.test(suffix)) derivedCountry = suffix;
+    }
+
+    const catSlug = normalizeCategorySlug(groupTitle);
+    const id = tvgId || `m3u-${derivedCountry}-${cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+
+    entries.push({
+      id,
+      name: cleanName,
+      countryCode: derivedCountry,
+      categories: [catSlug],
+      logoUrl: tvgLogo.startsWith('https://') ? tvgLogo : '',
+      streamUrl: line,
+      quality: qualityMatch ? qualityMatch[1].toUpperCase() : 'HD',
+    });
+    pendingInfo = '';
+  }
+
+  return entries;
+}
+
 let cachedTvCatalog: {
   timestamp: number;
   channels: TvChannel[];
@@ -2060,38 +2663,21 @@ let cachedTvCatalog: {
 const TV_CACHE_TTL_MS = 1000 * 60 * 30;
 
 async function buildTvCatalog() {
-  if (cachedTvCatalog && Date.now() - cachedTvCatalog.timestamp < TV_CACHE_TTL_MS) {
+  if (cachedTvCatalog && cachedTvCatalog.channels.length >= 800 && Date.now() - cachedTvCatalog.timestamp < TV_CACHE_TTL_MS) {
     return cachedTvCatalog;
   }
 
-  const [channelsRaw, streamsRaw, countriesRaw, logosRaw, categoriesRaw] = await Promise.all([
-    fetchJsonWithTimeout<IptvChannelRaw[]>('https://iptv-org.github.io/api/channels.json', 9000),
-    fetchJsonWithTimeout<IptvStreamRaw[]>('https://iptv-org.github.io/api/streams.json', 9000),
-    fetchJsonWithTimeout<IptvCountryRaw[]>('https://iptv-org.github.io/api/countries.json', 7000),
-    fetchJsonWithTimeout<IptvLogoRaw[]>('https://iptv-org.github.io/api/logos.json', 9000),
-    fetchJsonWithTimeout<IptvCategoryRaw[]>('https://iptv-org.github.io/api/categories.json', 7000),
-  ]);
-
-  if (!channelsRaw || !streamsRaw) {
-    return {
-      timestamp: Date.now(),
-      channels: VERIFIED_FEATURED_TV,
-      countries: [
-        { code: 'FR', name: 'France', flag: '🇫🇷', count: 2 },
-        { code: 'DE', name: 'Germany', flag: '🇩🇪', count: 1 },
-        { code: 'GB', name: 'United Kingdom', flag: '🇬🇧', count: 2 },
-        { code: 'RW', name: 'Rwanda', flag: '🇷🇼', count: 3 },
-        { code: 'US', name: 'United States', flag: '🇺🇸', count: 3 },
-        { code: 'QA', name: 'Qatar', flag: '🇶🇦', count: 1 },
-      ],
-      categories: [
-        { id: 'news', name: 'News', count: 5 },
-        { id: 'music', name: 'Music', count: 5 },
-        { id: 'entertainment', name: 'Entertainment', count: 3 },
-        { id: 'documentary', name: 'Documentary', count: 2 },
-      ],
-    };
-  }
+  const [channelsRaw, streamsRaw, countriesRaw, logosRaw, categoriesRaw, iptvM3uText, freeTvM3uText, rwandaM3uText] =
+    await Promise.all([
+      fetchJsonWithTimeout<IptvChannelRaw[]>('https://iptv-org.github.io/api/channels.json', 18000),
+      fetchJsonWithTimeout<IptvStreamRaw[]>('https://iptv-org.github.io/api/streams.json', 18000),
+      fetchJsonWithTimeout<IptvCountryRaw[]>('https://iptv-org.github.io/api/countries.json', 10000),
+      fetchJsonWithTimeout<IptvLogoRaw[]>('https://iptv-org.github.io/api/logos.json', 16000),
+      fetchJsonWithTimeout<IptvCategoryRaw[]>('https://iptv-org.github.io/api/categories.json', 10000),
+      fetchTextWithTimeout('https://iptv-org.github.io/iptv/index.m3u', 18000),
+      fetchTextWithTimeout('https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8', 15000),
+      fetchTextWithTimeout('https://iptv-org.github.io/iptv/countries/rw.m3u', 10000),
+    ]);
 
   const countryMap = new Map<string, IptvCountryRaw>();
   for (const c of countriesRaw || []) {
@@ -2107,7 +2693,7 @@ async function buildTvCatalog() {
   }
 
   const channelMap = new Map<string, IptvChannelRaw>();
-  for (const ch of channelsRaw) {
+  for (const ch of channelsRaw || []) {
     if (!ch.is_nsfw && !ch.closed) {
       channelMap.set(ch.id, ch);
     }
@@ -2118,37 +2704,75 @@ async function buildTvCatalog() {
     categoryNameMap.set(cat.id.toLowerCase(), cat.name);
   }
 
-  // Group all HTTPS streams per channel so we pick the strongest CDN host and keep backups
   const seenUrls = new Set<string>();
-  const channelStreamsMap = new Map<string, { ch?: IptvChannelRaw; name: string; urls: Array<{ url: string; quality: string }> }>();
+  const channelStreamsMap = new Map<
+    string,
+    {
+      ch?: IptvChannelRaw;
+      name: string;
+      countryCode?: string;
+      categories?: string[];
+      logoUrl?: string;
+      urls: Array<{ url: string; quality: string }>;
+    }
+  >();
 
-  for (const st of streamsRaw) {
-    if (!st.url || seenUrls.has(st.url)) continue;
-    if (st.user_agent || st.referrer) continue;
-
-    const ch = st.channel ? channelMap.get(st.channel) : undefined;
-    if (st.channel && !ch) continue; // Closed or NSFW channel
-
-    const isHttps = st.url.startsWith('https://');
-    const isRwandaHttp = st.url.startsWith('http://') && ch?.country === 'RW';
-    if (!isHttps && !isRwandaHttp) continue;
-
-    const name = (ch?.name || st.title || 'Live Broadcast').trim();
-    const key = ch?.id || `stream-${name.toLowerCase()}-${channelStreamsMap.size}`;
-    seenUrls.add(st.url);
-
+  const registerStreamCandidate = (
+    key: string,
+    name: string,
+    url: string,
+    quality: string,
+    meta?: { ch?: IptvChannelRaw; countryCode?: string; categories?: string[]; logoUrl?: string },
+  ) => {
+    if (!url || seenUrls.has(url) || !/^https?:\/\//i.test(url)) return;
+    seenUrls.add(url);
     const existing = channelStreamsMap.get(key);
     if (existing) {
       if (existing.urls.length < 5) {
-        existing.urls.push({ url: st.url, quality: st.quality || 'HD' });
+        existing.urls.push({ url, quality: quality || 'HD' });
       }
+      if (!existing.logoUrl && meta?.logoUrl) existing.logoUrl = meta.logoUrl;
     } else {
       channelStreamsMap.set(key, {
-        ch,
+        ch: meta?.ch,
         name,
-        urls: [{ url: st.url, quality: st.quality || 'HD' }],
+        countryCode: meta?.countryCode,
+        categories: meta?.categories,
+        logoUrl: meta?.logoUrl,
+        urls: [{ url, quality: quality || 'HD' }],
       });
     }
+  };
+
+  for (const st of streamsRaw || []) {
+    if (!st.url || st.user_agent || st.referrer) continue;
+    const ch = st.channel ? channelMap.get(st.channel) : undefined;
+    if (st.channel && !ch) continue;
+    const name = (ch?.name || st.title || 'Live Broadcast').trim();
+    const key = ch?.id || `stream-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+    registerStreamCandidate(key, name, st.url, st.quality || 'HD', {
+      ch,
+      countryCode: ch?.country?.toUpperCase(),
+      categories: ch?.categories,
+    });
+  }
+
+  // Merge direct M3U playlists (guarantees 2,500+ global channels + fast fallback if streams.json lags)
+  const m3uEntries = [
+    ...(rwandaM3uText ? parseM3uPlaylist(rwandaM3uText, 'RW', 100) : []),
+    ...(freeTvM3uText ? parseM3uPlaylist(freeTvM3uText, 'INT', 2500) : []),
+    ...(iptvM3uText ? parseM3uPlaylist(iptvM3uText, 'INT', 6500) : []),
+  ];
+
+  for (const item of m3uEntries) {
+    const ch = channelMap.get(item.id);
+    const key = ch?.id || item.id;
+    registerStreamCandidate(key, ch?.name || item.name, item.streamUrl, item.quality, {
+      ch,
+      countryCode: ch?.country?.toUpperCase() || item.countryCode,
+      categories: ch?.categories?.length ? ch.categories : item.categories,
+      logoUrl: item.logoUrl,
+    });
   }
 
   const resolvedChannels: TvChannel[] = [];
@@ -2156,7 +2780,7 @@ async function buildTvCatalog() {
   const categoryCounts = new Map<string, number>();
   const featuredById = new Map(VERIFIED_FEATURED_TV.map((f) => [f.id.toLowerCase(), f]));
 
-  // Always seed our verified live channels first so top listings are immediately playable
+  // Pin curated verified channels first
   const addedFeaturedIds = new Set<string>();
   for (const feat of VERIFIED_FEATURED_TV) {
     const logo = logoMap.get(feat.id) || feat.logoUrl;
@@ -2181,16 +2805,20 @@ async function buildTvCatalog() {
   for (const [id, entry] of channelStreamsMap.entries()) {
     if (addedFeaturedIds.has(id.toLowerCase()) || featuredById.has(id.toLowerCase())) continue;
 
-    // Sort candidate URLs so reliable CDN hosts are tried first
     entry.urls.sort((a, b) => scoreStreamHost(b.url) - scoreStreamHost(a.url));
     const primary = entry.urls[0];
     const alternates = entry.urls.slice(1).map((u) => u.url);
 
-    const countryCode = (entry.ch?.country || 'INT').toUpperCase();
+    const countryCode = (entry.ch?.country || entry.countryCode || 'INT').toUpperCase();
     const cInfo = countryMap.get(countryCode);
-    const countryName = cInfo?.name || (countryCode === 'INT' ? 'International' : countryCode);
-    const countryFlag = cInfo?.flag || '🌐';
-    const cats = entry.ch?.categories && entry.ch.categories.length > 0 ? entry.ch.categories : ['general'];
+    const countryName = cInfo?.name || countryNameFromCode(countryCode);
+    const countryFlag = cInfo?.flag || countryFlagFromCode(countryCode);
+    const cats =
+      entry.ch?.categories && entry.ch.categories.length > 0
+        ? entry.ch.categories
+        : entry.categories && entry.categories.length > 0
+          ? entry.categories
+          : ['general'];
 
     resolvedChannels.push({
       id,
@@ -2199,7 +2827,7 @@ async function buildTvCatalog() {
       countryName,
       countryFlag,
       categories: cats,
-      logoUrl: logoMap.get(id) || '',
+      logoUrl: logoMap.get(id) || entry.logoUrl || '',
       streamUrl: primary.url,
       alternateUrls: alternates.length > 0 ? alternates : undefined,
       quality: primary.quality,
@@ -2213,7 +2841,7 @@ async function buildTvCatalog() {
     }
   }
 
-  // Keep verified featured channels pinned at the top, then sort rest by CDN reliability + logo + name
+  // Keep verified featured channels pinned at the top, then sort rest by CDN reliability + HTTPS + logo + name
   const featuredSet = new Set(VERIFIED_FEATURED_TV.map((f) => f.id));
   resolvedChannels.sort((a, b) => {
     const aFeat = featuredSet.has(a.id) ? 1 : 0;
@@ -2238,8 +2866,8 @@ async function buildTvCatalog() {
       const info = countryMap.get(code);
       return {
         code,
-        name: info?.name || (code === 'INT' ? 'International' : code),
-        flag: info?.flag || '🌐',
+        name: info?.name || countryNameFromCode(code),
+        flag: info?.flag || countryFlagFromCode(code),
         count,
       };
     })
@@ -2248,14 +2876,15 @@ async function buildTvCatalog() {
   const categories: TvCategoryOption[] = Array.from(categoryCounts.entries())
     .map(([id, count]) => ({
       id,
-      name: categoryNameMap.get(id) || id[0].toUpperCase() + id.slice(1),
+      name: categoryNameMap.get(id) || (id[0] ? id[0].toUpperCase() + id.slice(1) : 'General'),
       count,
     }))
     .sort((a, b) => b.count - a.count);
 
+  const finalChannels = resolvedChannels.length > 0 ? resolvedChannels : VERIFIED_FEATURED_TV;
   cachedTvCatalog = {
     timestamp: Date.now(),
-    channels: resolvedChannels.length > 0 ? resolvedChannels : VERIFIED_FEATURED_TV,
+    channels: finalChannels,
     countries,
     categories,
   };
@@ -2283,7 +2912,7 @@ async function verifyHlsStreamLive(url: string): Promise<boolean> {
     const r1 = await fetch(url, {
       headers: uaHeaders,
       redirect: 'follow',
-      signal: AbortSignal.timeout(2600),
+      signal: AbortSignal.timeout(2400),
     });
     if (r1.ok) {
       const t1 = await r1.text();
@@ -2303,7 +2932,7 @@ async function verifyHlsStreamLive(url: string): Promise<boolean> {
             const r2 = await fetch(nextUrl, {
               headers: uaHeaders,
               redirect: 'follow',
-              signal: AbortSignal.timeout(2400),
+              signal: AbortSignal.timeout(2200),
             });
             if (r2.ok) {
               const t2 = await r2.text();
@@ -2318,7 +2947,7 @@ async function verifyHlsStreamLive(url: string): Promise<boolean> {
                   const r3 = await fetch(segUrl, {
                     headers: { ...uaHeaders, Range: 'bytes=0-63' },
                     redirect: 'follow',
-                    signal: AbortSignal.timeout(2200),
+                    signal: AbortSignal.timeout(2000),
                   });
                   ok = r3.ok || r3.status === 206;
                 }
@@ -2328,7 +2957,7 @@ async function verifyHlsStreamLive(url: string): Promise<boolean> {
             const r3 = await fetch(nextUrl, {
               headers: { ...uaHeaders, Range: 'bytes=0-63' },
               redirect: 'follow',
-              signal: AbortSignal.timeout(2200),
+              signal: AbortSignal.timeout(2000),
             });
             ok = r3.ok || r3.status === 206;
           }
@@ -2388,8 +3017,8 @@ app.get('/api/tv/channels', async (req: Request, res: Response) => {
     const q = String(req.query.q || '').trim().toLowerCase();
     const country = String(req.query.country || 'ALL').trim().toUpperCase();
     const category = String(req.query.category || 'all').trim().toLowerCase();
-    const verifiedOnly = req.query.verified !== '0';
-    const limit = Math.min(120, Math.max(4, Number(req.query.limit) || 48));
+    const verifiedOnly = req.query.verified === '1';
+    const limit = Math.min(200, Math.max(4, Number(req.query.limit) || 96));
     const offset = Math.max(0, Number(req.query.offset) || 0);
 
     const data = await buildTvCatalog();
@@ -2408,6 +3037,7 @@ app.get('/api/tv/channels', async (req: Request, res: Response) => {
         (ch) =>
           ch.name.toLowerCase().includes(q) ||
           ch.countryName.toLowerCase().includes(q) ||
+          ch.countryCode.toLowerCase().includes(q) ||
           ch.categories.some((cat) => cat.toLowerCase().includes(q)),
       );
     }
@@ -2555,6 +3185,533 @@ app.get('/api/tv/proxy', async (req: Request, res: Response) => {
     if (!res.headersSent) {
       res.status(502).send('Live TV relay failed');
     }
+  }
+});
+
+// 9. Live Sports Scores & Match Broadcasts (Real-time ESPN Public Scoreboards + Sports TV Channels)
+interface EspnCompetitorRaw {
+  homeAway?: 'home' | 'away';
+  score?: string;
+  team?: {
+    displayName?: string;
+    shortDisplayName?: string;
+    abbreviation?: string;
+    logo?: string;
+  };
+  records?: Array<{ summary?: string }>;
+  linescores?: Array<{ value?: number; displayValue?: string }>;
+  statistics?: Array<{ name?: string; abbreviation?: string; label?: string; displayValue?: string }>;
+}
+
+interface EspnEventRaw {
+  id: string;
+  date?: string;
+  status?: {
+    type?: {
+      state?: 'in' | 'pre' | 'post';
+      shortDetail?: string;
+      detail?: string;
+    };
+  };
+  season?: { slug?: string; year?: number };
+  competitions?: Array<{
+    venue?: { fullName?: string };
+    competitors?: EspnCompetitorRaw[];
+    broadcasts?: Array<{ names?: string[] }>;
+    geoBroadcasts?: Array<{ media?: { shortName?: string } }>;
+    notes?: Array<{ headline?: string }>;
+    details?: Array<{
+      clock?: { displayValue?: string };
+      type?: { text?: string };
+      athletesInvolved?: Array<{ shortName?: string }>;
+      team?: { id?: string };
+    }>;
+  }>;
+}
+
+const SPORTS_SCOREBOARD_FEEDS: Array<{
+  sport: 'soccer' | 'basketball' | 'football' | 'hockey';
+  leagueId: string;
+  leagueName: string;
+  leagueShort: string;
+  path: string;
+}> = [
+  { sport: 'soccer', leagueId: 'uefa.champions', leagueName: 'UEFA Champions League', leagueShort: 'UCL', path: 'soccer/uefa.champions' },
+  { sport: 'soccer', leagueId: 'eng.1', leagueName: 'English Premier League', leagueShort: 'EPL', path: 'soccer/eng.1' },
+  { sport: 'soccer', leagueId: 'esp.1', leagueName: 'La Liga', leagueShort: 'LaLiga', path: 'soccer/esp.1' },
+  { sport: 'soccer', leagueId: 'ita.1', leagueName: 'Serie A', leagueShort: 'Serie A', path: 'soccer/ita.1' },
+  { sport: 'soccer', leagueId: 'ger.1', leagueName: 'Bundesliga', leagueShort: 'Bundesliga', path: 'soccer/ger.1' },
+  { sport: 'soccer', leagueId: 'fra.1', leagueName: 'Ligue 1', leagueShort: 'Ligue 1', path: 'soccer/fra.1' },
+  { sport: 'soccer', leagueId: 'uefa.europa', leagueName: 'UEFA Europa League', leagueShort: 'UEL', path: 'soccer/uefa.europa' },
+  { sport: 'soccer', leagueId: 'usa.1', leagueName: 'MLS', leagueShort: 'MLS', path: 'soccer/usa.1' },
+  { sport: 'soccer', leagueId: 'soccer.all', leagueName: 'Global Football', leagueShort: 'Football', path: 'soccer/all' },
+  { sport: 'basketball', leagueId: 'nba', leagueName: 'NBA Basketball', leagueShort: 'NBA', path: 'basketball/nba' },
+  { sport: 'football', leagueId: 'nfl', leagueName: 'NFL Football', leagueShort: 'NFL', path: 'football/nfl' },
+  { sport: 'hockey', leagueId: 'nhl', leagueName: 'NHL Hockey', leagueShort: 'NHL', path: 'hockey/nhl' },
+];
+
+let cachedSportsScores: { ts: number; matches: LiveMatchItem[] } | null = null;
+const SPORTS_SCORE_TTL_MS = 40 * 1000;
+
+async function fetchAllSportsScores(forceRefresh = false): Promise<LiveMatchItem[]> {
+  if (!forceRefresh && cachedSportsScores && Date.now() - cachedSportsScores.ts < SPORTS_SCORE_TTL_MS) {
+    return cachedSportsScores.matches;
+  }
+
+  const results = await Promise.all(
+    SPORTS_SCOREBOARD_FEEDS.map(async (feed) => {
+      const json = await fetchJsonWithTimeout<{ events?: EspnEventRaw[] }>(
+        `https://site.api.espn.com/apis/site/v2/sports/${feed.path}/scoreboard`,
+        4500,
+      );
+      const events = json?.events || [];
+      const items: LiveMatchItem[] = [];
+
+      for (const ev of events) {
+        const comp = ev.competitions?.[0];
+        const competitors = comp?.competitors || [];
+        const home = competitors.find((c) => c.homeAway === 'home') || competitors[0];
+        const away = competitors.find((c) => c.homeAway === 'away') || competitors[1];
+        if (!home || !away) continue;
+
+        const state = ev.status?.type?.state || 'pre';
+        const shortDetail = ev.status?.type?.shortDetail || ev.status?.type?.detail || 'Scheduled';
+        const broadcasts = Array.from(
+          new Set([
+            ...(comp?.broadcasts || []).flatMap((b) => b.names || []),
+            ...(comp?.geoBroadcasts || []).map((g) => g.media?.shortName || ''),
+          ].filter(Boolean)),
+        );
+        const noteHeadline = comp?.notes?.[0]?.headline?.trim();
+        const slugLabel = ev.season?.slug
+          ? ev.season.slug
+              .replace(/[-_]+/g, ' ')
+              .replace(/\b\w/g, (ch) => ch.toUpperCase())
+          : '';
+        const computedLeagueName =
+          feed.leagueId === 'soccer.all'
+            ? noteHeadline || slugLabel || feed.leagueName
+            : feed.leagueName;
+        const computedLeagueShort =
+          feed.leagueId === 'soccer.all'
+            ? (noteHeadline?.split(' - ')[0] || slugLabel || feed.leagueShort).slice(0, 20)
+            : feed.leagueShort;
+
+        const highlights: LiveMatchHighlight[] = (comp?.details || [])
+          .slice(-4)
+          .map((d) => {
+            const player = d.athletesInvolved?.[0]?.shortName || '';
+            const evType = d.type?.text || '';
+            return {
+              clock: d.clock?.displayValue || '',
+              text: [player, evType].filter(Boolean).join(' · ') || 'Match Event',
+            };
+          })
+          .filter((h) => h.text !== 'Match Event' || h.clock);
+
+        const homeLines = home.linescores || [];
+        const awayLines = away.linescores || [];
+        const maxPeriods = Math.max(homeLines.length, awayLines.length);
+        const periodScores =
+          maxPeriods > 0
+            ? Array.from({ length: maxPeriods }, (_, idx) => ({
+                period:
+                  feed.sport === 'soccer'
+                    ? `${idx + 1}H`
+                    : feed.sport === 'hockey'
+                      ? `P${idx + 1}`
+                      : `Q${idx + 1}`,
+                home:
+                  homeLines[idx]?.displayValue ??
+                  (typeof homeLines[idx]?.value === 'number' ? String(homeLines[idx].value) : '—'),
+                away:
+                  awayLines[idx]?.displayValue ??
+                  (typeof awayLines[idx]?.value === 'number' ? String(awayLines[idx].value) : '—'),
+              }))
+            : undefined;
+
+        const homeStatsMap = new Map(
+          (home.statistics || []).map((s) => [s.name || s.label || '', s]),
+        );
+        const awayStatsMap = new Map(
+          (away.statistics || []).map((s) => [s.name || s.label || '', s]),
+        );
+        const stats =
+          homeStatsMap.size > 0
+            ? Array.from(homeStatsMap.entries())
+                .slice(0, 6)
+                .map(([key, hStat]) => {
+                  const aStat = awayStatsMap.get(key);
+                  return {
+                    label: hStat.label || hStat.abbreviation || key,
+                    homeValue: hStat.displayValue || '0',
+                    awayValue: aStat?.displayValue || '0',
+                  };
+                })
+            : undefined;
+
+        items.push({
+          id: ev.id,
+          sport: feed.sport,
+          leagueId: feed.leagueId,
+          leagueName: computedLeagueName,
+          leagueShort: computedLeagueShort,
+          statusState: state,
+          statusDetail: shortDetail,
+          isLive: state === 'in',
+          startTime: ev.date || new Date().toISOString(),
+          venue: comp?.venue?.fullName || undefined,
+          broadcasts,
+          homeTeam: {
+            name: home.team?.displayName || 'Home',
+            shortName: home.team?.shortDisplayName || home.team?.displayName || 'Home',
+            abbr: home.team?.abbreviation || 'HOM',
+            logoUrl: home.team?.logo || '',
+            score: home.score ?? (state === 'pre' ? '—' : '0'),
+            record: home.records?.[0]?.summary,
+          },
+          awayTeam: {
+            name: away.team?.displayName || 'Away',
+            shortName: away.team?.shortDisplayName || away.team?.displayName || 'Away',
+            abbr: away.team?.abbreviation || 'AWY',
+            logoUrl: away.team?.logo || '',
+            score: away.score ?? (state === 'pre' ? '—' : '0'),
+            record: away.records?.[0]?.summary,
+          },
+          highlights,
+          stats,
+          periodScores,
+        });
+      }
+
+      return items;
+    }),
+  );
+
+  // Deduplicate by event ID, preferring specific league feeds over soccer/all
+  const dedupedMap = new Map<string, LiveMatchItem>();
+  for (const item of results.flat()) {
+    if (!dedupedMap.has(item.id)) {
+      dedupedMap.set(item.id, item);
+    }
+  }
+  const merged = Array.from(dedupedMap.values());
+  const stateRank: Record<'in' | 'pre' | 'post', number> = { in: 0, pre: 1, post: 2 };
+  merged.sort((a, b) => {
+    const rDiff = stateRank[a.statusState] - stateRank[b.statusState];
+    if (rDiff !== 0) return rDiff;
+    return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
+  });
+
+  if (merged.length > 0) {
+    cachedSportsScores = { ts: Date.now(), matches: merged };
+  }
+  return merged;
+}
+
+app.get('/api/sports/scores', async (req: Request, res: Response) => {
+  const sport = String(req.query.sport || 'all').trim().toLowerCase();
+  const status = String(req.query.status || 'all').trim().toLowerCase();
+  const q = String(req.query.q || '').trim().toLowerCase();
+  const refresh = req.query.refresh === '1';
+
+  try {
+    const [allMatches, tvCatalog] = await Promise.all([
+      fetchAllSportsScores(refresh),
+      buildTvCatalog(),
+    ]);
+
+    let matches = allMatches;
+    if (sport && sport !== 'all') {
+      matches = matches.filter((m) => m.sport === sport);
+    }
+    if (status && status !== 'all') {
+      matches = matches.filter((m) =>
+        status === 'live'
+          ? m.statusState === 'in'
+          : status === 'upcoming'
+            ? m.statusState === 'pre'
+            : status === 'final'
+              ? m.statusState === 'post'
+              : true,
+      );
+    }
+    if (q) {
+      matches = matches.filter(
+        (m) =>
+          m.homeTeam.name.toLowerCase().includes(q) ||
+          m.awayTeam.name.toLowerCase().includes(q) ||
+          m.leagueName.toLowerCase().includes(q) ||
+          m.leagueShort.toLowerCase().includes(q),
+      );
+    }
+
+    const sportsChannels = tvCatalog.channels
+      .filter((ch) => ch.categories.some((c) => c.toLowerCase() === 'sports'))
+      .slice(0, 60);
+
+    res.json({
+      updatedAt: new Date().toISOString(),
+      liveCount: allMatches.filter((m) => m.isLive).length,
+      matches,
+      sportsChannels,
+    });
+  } catch {
+    res.json({
+      updatedAt: new Date().toISOString(),
+      liveCount: 0,
+      matches: [],
+      sportsChannels: VERIFIED_FEATURED_TV.filter((c) => c.categories.includes('sports')),
+    });
+  }
+});
+
+// Dedicated Real-Time Football API endpoint (supports optional FOOTBALL_DATA_API_KEY + zero-key ESPN Global Soccer)
+app.get('/api/football/matches', async (req: Request, res: Response) => {
+  const status = String(req.query.status || 'all').trim().toLowerCase();
+  const q = String(req.query.q || '').trim().toLowerCase();
+  const refresh = req.query.refresh === '1';
+
+  try {
+    const fdApiKey = process.env.FOOTBALL_DATA_API_KEY?.trim();
+    const footballDataPromise = fdApiKey
+      ? fetch('https://api.football-data.org/v4/matches', {
+          headers: { 'X-Auth-Token': fdApiKey },
+          signal: AbortSignal.timeout(4500),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null)
+      : Promise.resolve(null);
+
+    const [allScores, fdRaw, tvCatalog] = await Promise.all([
+      fetchAllSportsScores(refresh),
+      footballDataPromise,
+      buildTvCatalog(),
+    ]);
+
+    const fdMatches: LiveMatchItem[] = [];
+    if (fdRaw && Array.isArray(fdRaw.matches)) {
+      for (const m of fdRaw.matches) {
+        const fdStatus = String(m.status || '');
+        const statusState: LiveMatchItem['statusState'] =
+          fdStatus === 'IN_PLAY' || fdStatus === 'PAUSED'
+            ? 'in'
+            : fdStatus === 'FINISHED'
+              ? 'post'
+              : 'pre';
+        const homeGoals = m.score?.fullTime?.home ?? m.score?.halfTime?.home;
+        const awayGoals = m.score?.fullTime?.away ?? m.score?.halfTime?.away;
+
+        fdMatches.push({
+          id: `fd-${m.id}`,
+          sport: 'soccer',
+          leagueId: m.competition?.code || 'football-data',
+          leagueName: m.competition?.name || 'Football',
+          leagueShort: m.competition?.code || 'FTB',
+          statusState,
+          statusDetail:
+            fdStatus === 'IN_PLAY'
+              ? m.minute
+                ? `${m.minute}'`
+                : 'LIVE'
+              : fdStatus === 'PAUSED'
+                ? 'HT'
+                : fdStatus === 'FINISHED'
+                  ? 'FT'
+                  : 'Scheduled',
+          isLive: statusState === 'in',
+          startTime: m.utcDate || new Date().toISOString(),
+          venue: m.venue || undefined,
+          broadcasts: [],
+          homeTeam: {
+            name: m.homeTeam?.name || 'Home',
+            shortName: m.homeTeam?.shortName || m.homeTeam?.name || 'Home',
+            abbr: m.homeTeam?.tla || 'HOM',
+            logoUrl: m.homeTeam?.crest || '',
+            score: typeof homeGoals === 'number' ? String(homeGoals) : statusState === 'pre' ? '—' : '0',
+          },
+          awayTeam: {
+            name: m.awayTeam?.name || 'Away',
+            shortName: m.awayTeam?.shortName || m.awayTeam?.name || 'Away',
+            abbr: m.awayTeam?.tla || 'AWY',
+            logoUrl: m.awayTeam?.crest || '',
+            score: typeof awayGoals === 'number' ? String(awayGoals) : statusState === 'pre' ? '—' : '0',
+          },
+          highlights: [],
+        });
+      }
+    }
+
+    const espnFootball = allScores.filter((m) => m.sport === 'soccer');
+    let matches: LiveMatchItem[] = fdMatches.length > 0 ? [...fdMatches, ...espnFootball] : espnFootball;
+
+    if (status && status !== 'all') {
+      matches = matches.filter((m) =>
+        status === 'live'
+          ? m.statusState === 'in'
+          : status === 'upcoming'
+            ? m.statusState === 'pre'
+            : status === 'final'
+              ? m.statusState === 'post'
+              : true,
+      );
+    }
+
+    if (q) {
+      matches = matches.filter(
+        (m) =>
+          m.homeTeam.name.toLowerCase().includes(q) ||
+          m.awayTeam.name.toLowerCase().includes(q) ||
+          m.leagueName.toLowerCase().includes(q) ||
+          m.leagueShort.toLowerCase().includes(q),
+      );
+    }
+
+    const sportsChannels = tvCatalog.channels
+      .filter((ch) => ch.categories.some((c) => c.toLowerCase() === 'sports'))
+      .slice(0, 60);
+
+    res.json({
+      updatedAt: new Date().toISOString(),
+      liveCount: matches.filter((m) => m.isLive).length,
+      matches,
+      sportsChannels,
+    });
+  } catch {
+    res.json({
+      updatedAt: new Date().toISOString(),
+      liveCount: 0,
+      matches: [],
+      sportsChannels: VERIFIED_FEATURED_TV.filter((c) => c.categories.includes('sports')),
+    });
+  }
+});
+
+interface EspnSummaryResponse {
+  boxscore?: {
+    teams?: Array<{
+      homeAway?: 'home' | 'away';
+      team?: { abbreviation?: string; displayName?: string };
+      statistics?: Array<{ name?: string; label?: string; displayValue?: string }>;
+    }>;
+  };
+  keyEvents?: Array<{
+    clock?: { displayValue?: string };
+    type?: { text?: string };
+    text?: string;
+    team?: { abbreviation?: string; displayName?: string };
+  }>;
+  rosters?: Array<{
+    homeAway?: 'home' | 'away';
+    roster?: Array<{
+      starter?: boolean;
+      jersey?: string;
+      position?: { abbreviation?: string; displayName?: string };
+      athlete?: { displayName?: string; shortName?: string };
+    }>;
+  }>;
+}
+
+app.get('/api/sports/match/:sport/:leagueId/:eventId', async (req: Request, res: Response) => {
+  const sport = String(req.params.sport || 'soccer').replace(/[^a-z]/gi, '');
+  const leagueId = String(req.params.leagueId || 'soccer.all').replace(/[^a-z0-9.]/gi, '');
+  const eventId = String(req.params.eventId || '').replace(/[^a-z0-9-]/gi, '');
+
+  if (!eventId || eventId.startsWith('fd-')) {
+    res.json({ stats: [], highlights: [], homeLineup: [], awayLineup: [] });
+    return;
+  }
+
+  const leaguePath = leagueId === 'soccer.all' ? 'all' : leagueId;
+  const summaryUrl = `https://site.api.espn.com/apis/site/v2/sports/${sport}/${leaguePath}/summary?event=${encodeURIComponent(eventId)}`;
+
+  try {
+    const raw = await fetchJsonWithTimeout<EspnSummaryResponse>(summaryUrl, 5000);
+    if (!raw) {
+      res.json({ stats: [], highlights: [], homeLineup: [], awayLineup: [] });
+      return;
+    }
+
+    const teams = raw.boxscore?.teams || [];
+    const homeTeamBox = teams.find((t) => t.homeAway === 'home') || teams[0];
+    const awayTeamBox = teams.find((t) => t.homeAway === 'away') || teams[1];
+
+    const preferredKeys = [
+      'possessionPct',
+      'totalShots',
+      'shotsOnTarget',
+      'wonCorners',
+      'foulsCommitted',
+      'yellowCards',
+      'redCards',
+      'offsides',
+      'fieldGoalPct',
+      'threePointFieldGoalsMade-threePointFieldGoalsAttempted',
+      'totalRebounds',
+      'assists',
+      'turnovers',
+      'totalYards',
+      'netPassingYards',
+      'rushingYards',
+      'firstDowns',
+    ];
+
+    const awayMap = new Map(
+      (awayTeamBox?.statistics || []).map((s) => [s.name || s.label || '', s]),
+    );
+    const homeStats = homeTeamBox?.statistics || [];
+    const orderedHomeStats = [
+      ...homeStats.filter((s) => s.name && preferredKeys.includes(s.name)),
+      ...homeStats.filter((s) => !s.name || !preferredKeys.includes(s.name)),
+    ];
+
+    const stats = orderedHomeStats
+      .slice(0, 10)
+      .map((hs) => {
+        const key = hs.name || hs.label || '';
+        const as = awayMap.get(key);
+        return {
+          label: hs.label || key,
+          homeValue: hs.displayValue || '0',
+          awayValue: as?.displayValue || '0',
+        };
+      })
+      .filter((s) => s.label);
+
+    const highlights: LiveMatchHighlight[] = (raw.keyEvents || [])
+      .filter((ev) => ev.text || ev.type?.text)
+      .slice(0, 20)
+      .map((ev) => ({
+        clock: ev.clock?.displayValue || ev.type?.text || '',
+        text: ev.text || ev.type?.text || '',
+        teamAbbr: ev.team?.abbreviation,
+      }));
+
+    const rosters = raw.rosters || [];
+    const homeRosterRaw = rosters.find((r) => r.homeAway === 'home') || rosters[0];
+    const awayRosterRaw = rosters.find((r) => r.homeAway === 'away') || rosters[1];
+
+    const mapRoster = (
+      list?: NonNullable<EspnSummaryResponse['rosters']>[number]['roster'],
+    ) =>
+      (list || [])
+        .map((p) => ({
+          name: p.athlete?.displayName || p.athlete?.shortName || '',
+          jersey: p.jersey,
+          position: p.position?.abbreviation || p.position?.displayName,
+          starter: Boolean(p.starter),
+        }))
+        .filter((p) => p.name)
+        .slice(0, 22);
+
+    res.json({
+      stats,
+      highlights,
+      homeLineup: mapRoster(homeRosterRaw?.roster),
+      awayLineup: mapRoster(awayRosterRaw?.roster),
+    });
+  } catch {
+    res.json({ stats: [], highlights: [], homeLineup: [], awayLineup: [] });
   }
 });
 

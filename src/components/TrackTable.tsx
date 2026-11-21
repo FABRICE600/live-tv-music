@@ -10,6 +10,8 @@ import {
   ExternalLink,
   Check,
   Radio,
+  Film,
+  Loader2,
 } from 'lucide-react';
 import type { MusicTrack, UserPlaylist } from '../types/music';
 import { formatDuration } from '../utils/formatters';
@@ -30,6 +32,8 @@ interface TrackTableProps {
   onOpenLyrics: (track: MusicTrack) => void;
   onOpenSpotifyEmbed: (track: MusicTrack) => void;
   onSelectArtist: (artistId: string, artistName?: string) => void;
+  onWatchVideo?: (track: MusicTrack, contextTracks?: MusicTrack[]) => void;
+  resolvingVideoTrackId?: string | null;
   onRemoveFromPlaylist?: (trackId: string) => void;
   emptyMessage?: string;
 }
@@ -49,6 +53,8 @@ export function TrackTable({
   onOpenLyrics,
   onOpenSpotifyEmbed,
   onSelectArtist,
+  onWatchVideo,
+  resolvingVideoTrackId,
   onRemoveFromPlaylist,
   emptyMessage = 'No tracks match your current filter.',
 }: TrackTableProps) {
@@ -166,6 +172,30 @@ export function TrackTable({
 
             {/* Actions */}
             <div className="flex items-center gap-1 shrink-0 relative">
+              {onWatchVideo && !track.isLive && (
+                <button
+                  type="button"
+                  onClick={() => onWatchVideo(track, tracks)}
+                  disabled={resolvingVideoTrackId === track.id}
+                  title={
+                    track.youtubeVideoId || track.videoUrl
+                      ? 'Watch Music Video'
+                      : 'Find & Watch Music Video'
+                  }
+                  aria-label={`Watch music video for ${track.title}`}
+                  className={`p-2 rounded-md transition-colors ${
+                    track.youtubeVideoId || track.videoUrl
+                      ? 'text-[var(--sm-accent-text)] hover:bg-[var(--sm-accent-soft)]'
+                      : 'text-[var(--sm-text-muted)] hover:text-[var(--sm-text)] hover:bg-[var(--sm-muted)]'
+                  }`}
+                >
+                  {resolvingVideoTrackId === track.id ? (
+                    <Loader2 size={15} className="animate-spin text-[var(--sm-accent-text)]" />
+                  ) : (
+                    <Film size={15} />
+                  )}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => onToggleLike(track)}

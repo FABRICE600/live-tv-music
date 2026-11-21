@@ -11,16 +11,22 @@ import {
   CheckCircle2,
   Tv,
   Music2,
+  Film,
+  Trophy,
+  Clock,
 } from 'lucide-react';
 import type {
   DiscoverCatalog,
+  LiveMatchItem,
   MusicTrack,
   SpotifyCuratedPlaylist,
   TvChannel,
   UserPlaylist,
 } from '../types/music';
+import { formatDuration } from '../utils/formatters';
 import { CoverArtwork } from './CoverArtwork';
 import { TrackTable } from './TrackTable';
+import { fetchLiveSportsScoreboard } from '../services/footballApi';
 
 const FALLBACK_FEATURED_TV: TvChannel[] = [
   {
@@ -82,7 +88,12 @@ interface DiscoverViewProps {
   onSelectCurated: (playlistId: string | null) => void;
   onOpenListeningRoom: () => void;
   onOpenLiveTv: () => void;
+  onOpenMatches: () => void;
+  onOpenVideos: () => void;
   onWatchTvChannel: (channel: TvChannel) => void;
+  onWatchMatchTv?: (channel?: TvChannel) => void;
+  onWatchVideo: (track: MusicTrack, contextTracks?: MusicTrack[]) => void;
+  resolvingVideoTrackId?: string | null;
   onOpenStoresDirectory: () => void;
   onOpenArtistsDirectory: () => void;
   onOpenRwandaMusic: () => void;
@@ -115,7 +126,12 @@ export function DiscoverView({
   onSelectCurated,
   onOpenListeningRoom,
   onOpenLiveTv,
+  onOpenMatches,
+  onOpenVideos,
   onWatchTvChannel,
+  onWatchMatchTv,
+  onWatchVideo,
+  resolvingVideoTrackId,
   onOpenStoresDirectory,
   onOpenArtistsDirectory,
   onOpenRwandaMusic,
@@ -140,17 +156,47 @@ export function DiscoverView({
 }: DiscoverViewProps) {
   const [spotifyUrl, setSpotifyUrl] = useState('');
   const [featuredTv, setFeaturedTv] = useState<TvChannel[]>(FALLBACK_FEATURED_TV);
+  const [tvTotalCount, setTvTotalCount] = useState<number>(800);
+  const [featuredVideos, setFeaturedVideos] = useState<MusicTrack[]>([]);
+  const [featuredMatches, setFeaturedMatches] = useState<LiveMatchItem[]>([]);
+  const [featuredSportsChannel, setFeaturedSportsChannel] = useState<TvChannel | null>(null);
 
   useEffect(() => {
     let active = true;
     fetch('/api/tv/channels?limit=4')
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (active && Array.isArray(data?.channels) && data.channels.length > 0) {
+        if (!active || !data) return;
+        if (Array.isArray(data.channels) && data.channels.length > 0) {
           setFeaturedTv(data.channels.slice(0, 4));
+        }
+        if (typeof data.totalWorldwide === 'number' && data.totalWorldwide > 0) {
+          setTvTotalCount(data.totalWorldwide);
         }
       })
       .catch(() => {});
+
+    fetch('/api/videos/catalog?category=all')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (active && Array.isArray(data?.videos)) {
+          setFeaturedVideos(data.videos.slice(0, 4));
+        }
+      })
+      .catch(() => {});
+
+    fetchLiveSportsScoreboard()
+      .then((data) => {
+        if (!active) return;
+        if (Array.isArray(data.matches)) {
+          setFeaturedMatches(data.matches.slice(0, 4));
+        }
+        if (Array.isArray(data.sportsChannels) && data.sportsChannels.length > 0) {
+          setFeaturedSportsChannel(data.sportsChannels[0]);
+        }
+      })
+      .catch(() => {});
+
     return () => {
       active = false;
     };
@@ -254,6 +300,8 @@ export function DiscoverView({
             onOpenLyrics={onOpenLyrics}
             onOpenSpotifyEmbed={onOpenSpotifyEmbed}
             onSelectArtist={onSelectArtist}
+            onWatchVideo={onWatchVideo}
+            resolvingVideoTrackId={resolvingVideoTrackId}
           />
         </div>
       );
@@ -315,11 +363,29 @@ export function DiscoverView({
 
             <button
               type="button"
+              onClick={onOpenVideos}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[var(--sm-border)] bg-[var(--sm-bg)]/60 text-sm font-medium text-[var(--sm-text)] hover:border-[var(--sm-accent)] transition-colors whitespace-nowrap shrink-0"
+            >
+              <Film size={15} />
+              <span>Music Videos</span>
+            </button>
+
+            <button
+              type="button"
               onClick={onOpenLiveTv}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[var(--sm-border)] bg-[var(--sm-bg)]/60 text-sm font-medium text-[var(--sm-text)] hover:border-[var(--sm-accent)] transition-colors whitespace-nowrap shrink-0"
             >
               <Tv size={15} />
               <span>Watch Live TV</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onOpenMatches}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[var(--sm-border)] bg-[var(--sm-bg)]/60 text-sm font-medium text-[var(--sm-text)] hover:border-[var(--sm-accent)] transition-colors whitespace-nowrap shrink-0"
+            >
+              <Trophy size={15} />
+              <span>Match TV &amp; Scores</span>
             </button>
 
             <button
@@ -455,6 +521,8 @@ export function DiscoverView({
           onOpenLyrics={onOpenLyrics}
           onOpenSpotifyEmbed={onOpenSpotifyEmbed}
           onSelectArtist={onSelectArtist}
+          onWatchVideo={onWatchVideo}
+          resolvingVideoTrackId={resolvingVideoTrackId}
         />
       </section>
 
@@ -513,6 +581,68 @@ export function DiscoverView({
         </section>
       )}
 
+      {/* 4a. Featured Music Videos & Cinema */}
+      {featuredVideos.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <h2 className="font-display text-xl sm:text-2xl font-bold text-[var(--sm-text)]">
+                Music Videos &amp; Cinema
+              </h2>
+              <p className="text-xs sm:text-sm text-[var(--sm-text-sec)]">
+                Official music videos, Rwanda visuals, and studio sessions in widescreen Cinema Mode
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onOpenVideos}
+              className="inline-flex items-center gap-1 text-xs font-medium text-[var(--sm-accent-text)] hover:underline whitespace-nowrap shrink-0"
+            >
+              <span>All Music Videos</span>
+              <ArrowRight size={13} />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {featuredVideos.map((vid) => (
+              <button
+                key={vid.id}
+                type="button"
+                onClick={() => onWatchVideo(vid, featuredVideos)}
+                className="group text-left rounded-xl border border-[var(--sm-border)] bg-[var(--sm-surface)] hover:border-[var(--sm-accent)] transition-colors overflow-hidden flex flex-col"
+              >
+                <div className="relative aspect-video bg-[#0B0C10] overflow-hidden">
+                  <CoverArtwork
+                    src={vid.coverUrl}
+                    alt={vid.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    roundedClassName="rounded-none"
+                    sizeIcon={24}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-transparent flex items-end justify-between p-2.5">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[var(--sm-accent)] text-[var(--sm-on-accent)] text-[11px] font-semibold">
+                      <Play size={10} fill="currentColor" />
+                      <span>Watch Video</span>
+                    </span>
+                    <span className="font-mono tabular-nums text-[11px] text-white/90 bg-black/65 px-1.5 py-0.5 rounded">
+                      {formatDuration(vid.durationSec)}
+                    </span>
+                  </div>
+                </div>
+                <div className="p-3.5 space-y-0.5">
+                  <div className="text-sm font-semibold text-[var(--sm-text)] line-clamp-1">
+                    {vid.title}
+                  </div>
+                  <div className="text-xs text-[var(--sm-text-muted)] truncate">
+                    {vid.artist} · {vid.genre}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* 4b. Live World TV Video Channels */}
       <section className="space-y-4">
         <div className="flex items-end justify-between gap-4">
@@ -521,7 +651,7 @@ export function DiscoverView({
               Live TV Video Broadcasts
             </h2>
             <p className="text-xs sm:text-sm text-[var(--sm-text-sec)]">
-              Watch international news, music, sports, and documentary video streams in the TV Theatre
+              Watch <span className="font-mono tabular-nums">{tvTotalCount.toLocaleString()}+</span> live international news, music, sports, and documentary streams in the TV Theatre
             </p>
           </div>
           <button
@@ -529,7 +659,7 @@ export function DiscoverView({
             onClick={onOpenLiveTv}
             className="inline-flex items-center gap-1 text-xs font-medium text-[var(--sm-accent-text)] hover:underline whitespace-nowrap shrink-0"
           >
-            <span>Open TV Video Theatre</span>
+            <span>Browse All {tvTotalCount.toLocaleString()}+ Channels</span>
             <ArrowRight size={13} />
           </button>
         </div>
@@ -567,6 +697,94 @@ export function DiscoverView({
           ))}
         </div>
       </section>
+
+      {/* 4c. Live Scores & Match TV */}
+      {featuredMatches.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h2 className="font-display text-xl sm:text-2xl font-bold text-[var(--sm-text)]">
+                Live Scores &amp; Match TV
+              </h2>
+              <p className="text-xs sm:text-sm text-[var(--sm-text-sec)]">
+                Real-time football, NBA, NFL, and NHL scores paired with live Sports TV broadcasts
+              </p>
+            </div>
+            <div className="flex items-center gap-4">
+              {featuredSportsChannel && onWatchMatchTv && (
+                <button
+                  type="button"
+                  onClick={() => onWatchMatchTv(featuredSportsChannel)}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--sm-text)] hover:text-[var(--sm-accent-text)] whitespace-nowrap"
+                >
+                  <Tv size={13} />
+                  <span>Watch Match TV</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onOpenMatches}
+                className="inline-flex items-center gap-1 text-xs font-medium text-[var(--sm-accent-text)] hover:underline whitespace-nowrap shrink-0"
+              >
+                <span>Full Scoreboard</span>
+                <ArrowRight size={13} />
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {featuredMatches.map((m) => {
+              const showScore = m.statusState !== 'pre';
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={onOpenMatches}
+                  className="text-left p-4 rounded-xl border border-[var(--sm-border)] bg-[var(--sm-surface)] hover:border-[var(--sm-accent)] transition-colors flex flex-col justify-between gap-3"
+                >
+                  <div className="flex items-center justify-between gap-2 text-[11px] pb-2 border-b border-[var(--sm-border)] w-full">
+                    <span className="text-[var(--sm-text-muted)] truncate">{m.leagueShort}</span>
+                    {m.isLive ? (
+                      <span className="inline-flex items-center gap-1 font-mono tabular-nums font-semibold text-[#15803D] dark:text-emerald-400 shrink-0">
+                        <Radio size={10} />
+                        <span>LIVE · {m.statusDetail}</span>
+                      </span>
+                    ) : m.statusState === 'pre' ? (
+                      <span className="inline-flex items-center gap-1 font-mono tabular-nums text-[var(--sm-accent-text)] shrink-0">
+                        <Clock size={10} />
+                        <span>{m.statusDetail}</span>
+                      </span>
+                    ) : (
+                      <span className="font-mono tabular-nums text-[var(--sm-text-muted)] shrink-0">
+                        FINAL
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5 w-full text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-[var(--sm-text)] truncate">
+                        {m.homeTeam.shortName || m.homeTeam.name}
+                      </span>
+                      <span className="font-mono tabular-nums text-base font-bold text-[var(--sm-text)]">
+                        {showScore ? m.homeTeam.score : '–'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-[var(--sm-text)] truncate">
+                        {m.awayTeam.shortName || m.awayTeam.name}
+                      </span>
+                      <span className="font-mono tabular-nums text-base font-bold text-[var(--sm-text)]">
+                        {showScore ? m.awayTeam.score : '–'}
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* 5. Spotify Playlists & URL Importer */}
       <section className="space-y-4">

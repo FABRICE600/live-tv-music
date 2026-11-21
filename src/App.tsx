@@ -18,7 +18,21 @@ import {
   Check,
   Film,
   Minimize2,
+  LogIn,
+  LogOut,
+  AlertTriangle,
 } from 'lucide-react';
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  onSnapshot,
+  serverTimestamp,
+  setDoc,
+} from 'firebase/firestore';
+import { useAuth } from './contexts/AuthContext';
+import { db } from './lib/firebase';
 import type {
   AccentMode,
   AppView,
@@ -37,11 +51,19 @@ import type {
 import { ACCENT_MODES, DEFAULT_EQ, EQ_BANDS, SURFACE_MODES } from './utils/formatters';
 import { Sidebar } from './components/Sidebar';
 import { PlayerBar } from './components/PlayerBar';
+import { HomeView } from './components/HomeView';
 import { DiscoverView } from './components/DiscoverView';
 import { RwandaMusicView } from './components/RwandaMusicView';
 import { ListeningRoomView } from './components/ListeningRoomView';
 import { LiveTvView } from './components/LiveTvView';
+import { LiveMatchView } from './components/LiveMatchView';
+import { VideosView } from './components/VideosView';
 import { HlsVideoPlayer } from './components/HlsVideoPlayer';
+import { AiStudioView } from './components/AiStudioView';
+import { AiAssistantView } from './components/AiAssistantView';
+import { MapExplorerView } from './components/MapExplorerView';
+import { Stage3DView } from './components/Stage3DView';
+import { RhythmGame3DView } from './components/RhythmGame3DView';
 import {
   BrowseView,
   ArtistsView,
@@ -57,6 +79,7 @@ import {
   SpotifyEmbedModal,
   LyricsModal,
   QueueDrawer,
+  ShortcutsModal,
 } from './components/ModalsAndDrawers';
 
 interface YtPlayerInstance {
@@ -154,9 +177,11 @@ export default function App() {
     return 'amber';
   });
   const [colorMenuOpen, setColorMenuOpen] = useState(false);
+  const [gmpQuotaExceeded, setGmpQuotaExceeded] = useState(false);
+  const { user, isAuthReady, signInWithGoogle, signOutUser } = useAuth();
 
-  const [activeView, setActiveView] = useState<AppView>({ type: 'discover' });
-  const [previousView, setPreviousView] = useState<AppView>({ type: 'discover' });
+  const [activeView, setActiveView] = useState<AppView>({ type: 'home' });
+  const [previousView, setPreviousView] = useState<AppView>({ type: 'home' });
   const [searchQuery, setSearchQuery] = useState('');
   const [topSearchDraft, setTopSearchDraft] = useState('');
   const [tvSearchQuery, setTvSearchQuery] = useState('');
@@ -235,9 +260,13 @@ export default function App() {
   const crossfadingRef = useRef(false);
   const skipNextDeckLoadRef = useRef(false);
 
-  // YouTube Music Full-Song IFrame Bridge
+  // YouTube Music & Cinema Video Bridge
   const [showMusicVideo, setShowMusicVideo] = useState(false);
+  const [videoTheaterExpanded, setVideoTheaterExpanded] = useState(false);
+  const [resolvingVideoTrackId, setResolvingVideoTrackId] = useState<string | null>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const ytHostRef = useRef<HTMLDivElement | null>(null);
+  const htmlVideoRef = useRef<HTMLVideoElement | null>(null);
   const ytPlayerRef = useRef<YtPlayerInstance | null>(null);
   const ytReadyRef = useRef(false);
   const handleNextRef = useRef<() => void>(() => {});
@@ -295,6 +324,101 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('soundmark_crossfade_sec', String(crossfadeSec));
   }, [crossfadeSec]);
+
+  // Listen for Google Maps Demo Key quota exceeded events (Case A)
+  useEffect(() => {
+    const onQuota = () => setGmpQuotaExceeded(true);
+    window.addEventListener('gmp-quota-exceeded', onQuota);
+    return () => window.removeEventListener('gmp-quota-exceeded', onQuota);
+  }, []);
+
+  // Firestore real-time sync for signed-in verified users (guarded by isAuthReady)
+  const cloudHydratedRef = useRef(false);
+  useEffect(() => {
+    if (!isAuthReady || !user?.emailVerified) {
+      cloudHydratedRef.current = false;
+      return;
+    }
+
+    const libRef = doc(db, 'users', user.uid, 'library', 'state');
+    const unsubLib = onSnapshot(
+      libRef,
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as { likedIds?: unknown };
+          if (Array.isArray(data.likedIds)) {
+            const remoteIds = data.likedIds.filter((x): x is string => typeof x === 'string');
+            if (remoteIds.length > 0) {
+              setLikedIds((prev) => Array.from(new Set([...remoteIds, ...prev])).slice(0, 200));
+            }
+          }
+        }
+        cloudHydratedRef.current = true;
+      },
+      () => {
+        cloudHydratedRef.current = true;
+      },
+    );
+
+    const plsRef = collection(db, 'users', user.uid, 'playlists');
+    const unsubPls = onSnapshot(
+      plsRef,
+      (snap) => {
+        const remotePlaylists: UserPlaylist[] = [];
+        snap.forEach((docSnap) => {
+          const d = docSnap.data() as {
+            name?: string;
+            description?: string;
+            trackIds?: string[];
+          };
+          if (d?.name) {
+            remotePlaylists.push({
+              id: docSnap.id,
+              name: d.name,
+              description: d.description || '',
+              createdAt: new Date().toISOString(),
+              trackIds: Array.isArray(d.trackIds) ? d.trackIds : [],
+            });
+          }
+        });
+        if (remotePlaylists.length > 0) {
+          setUserPlaylists((prev) => {
+            const map = new Map<string, UserPlaylist>();
+            for (const p of prev) map.set(p.id, p);
+            for (const p of remotePlaylists) map.set(p.id, p);
+            return Array.from(map.values());
+          });
+        }
+      },
+      () => {},
+    );
+
+    return () => {
+      unsubLib();
+      unsubPls();
+    };
+  }, [isAuthReady, user?.uid, user?.emailVerified]);
+
+  // Push liked tracks to Firestore when signed in
+  useEffect(() => {
+    if (!isAuthReady || !user?.emailVerified || !cloudHydratedRef.current) return;
+    const libRef = doc(db, 'users', user.uid, 'library', 'state');
+    void getDoc(doc(db, 'users', user.uid))
+      .then((userSnap) => {
+        if (!userSnap.exists()) return;
+        return setDoc(
+          libRef,
+          {
+            ownerUid: user.uid,
+            likedIds: likedIds.slice(0, 200),
+            pinnedMatchIds: [],
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true },
+        );
+      })
+      .catch(() => {});
+  }, [likedIds, isAuthReady, user?.uid, user?.emailVerified]);
 
   const cacheTracks = useCallback((tracks: MusicTrack[]) => {
     if (!tracks.length) return;
@@ -571,13 +695,23 @@ export default function App() {
       };
     }
 
-    // Standard HTML5 Audio Track
+    // Standard HTML5 Video Track (Archive Cinema MP4)
     if (ytPlayerRef.current && ytReadyRef.current) {
       try {
         ytPlayerRef.current.pauseVideo();
       } catch {
         // Ignore
       }
+    }
+
+    if (currentTrack.videoUrl) {
+      deckARef.current?.pause();
+      deckBRef.current?.pause();
+      setPlaybackError(null);
+      setIsBuffering(false);
+      setCurrentTime(0);
+      setDuration(currentTrack.durationSec || 0);
+      return;
     }
 
     const activeEl = getActiveAudio();
@@ -844,6 +978,19 @@ export default function App() {
       return;
     }
 
+    if (currentTrack.videoUrl) {
+      const vid = htmlVideoRef.current;
+      if (!vid) return;
+      if (isPlaying) {
+        vid.pause();
+        setIsPlaying(false);
+      } else {
+        setActiveTvChannel(null);
+        vid.play().then(() => setIsPlaying(true)).catch(() => {});
+      }
+      return;
+    }
+
     const audioEl = getActiveAudio();
     if (!audioEl) return;
     if (isPlaying) {
@@ -901,6 +1048,11 @@ export default function App() {
         setCurrentTime(0);
         return;
       }
+      if (currentTrack?.videoUrl && htmlVideoRef.current) {
+        htmlVideoRef.current.currentTime = 0;
+        setCurrentTime(0);
+        return;
+      }
       const activeEl = getActiveAudio();
       if (activeEl) {
         activeEl.currentTime = 0;
@@ -913,7 +1065,7 @@ export default function App() {
     } else {
       setCurrentIndex(queue.length - 1);
     }
-  }, [queue.length, currentIndex, currentTime, currentTrack?.youtubeVideoId, getActiveAudio]);
+  }, [queue.length, currentIndex, currentTime, currentTrack?.youtubeVideoId, currentTrack?.videoUrl, getActiveAudio]);
 
   const handleSeek = useCallback(
     (sec: number) => {
@@ -922,12 +1074,17 @@ export default function App() {
         setCurrentTime(sec);
         return;
       }
+      if (currentTrack?.videoUrl && htmlVideoRef.current) {
+        htmlVideoRef.current.currentTime = sec;
+        setCurrentTime(sec);
+        return;
+      }
       const activeEl = getActiveAudio();
       if (!activeEl) return;
       activeEl.currentTime = sec;
       setCurrentTime(sec);
     },
-    [currentTrack?.youtubeVideoId, getActiveAudio],
+    [currentTrack?.youtubeVideoId, currentTrack?.videoUrl, getActiveAudio],
   );
 
   const handleAddToQueue = useCallback(
@@ -954,41 +1111,89 @@ export default function App() {
     [cacheTracks],
   );
 
-  const handleCreatePlaylist = useCallback((name: string) => {
-    const newPl: UserPlaylist = {
-      id: `pl-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      name,
-      description: '',
-      createdAt: new Date().toISOString(),
-      trackIds: [],
-    };
-    setUserPlaylists((prev) => [newPl, ...prev]);
-    setActiveView({ type: 'custom_playlist', playlistId: newPl.id });
-  }, []);
+  const handleCreatePlaylist = useCallback(
+    (name: string) => {
+      const newPl: UserPlaylist = {
+        id: `pl-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        name,
+        description: '',
+        createdAt: new Date().toISOString(),
+        trackIds: [],
+      };
+      setUserPlaylists((prev) => [newPl, ...prev]);
+      setActiveView({ type: 'custom_playlist', playlistId: newPl.id });
+
+      if (user?.emailVerified) {
+        void setDoc(doc(db, 'users', user.uid, 'playlists', newPl.id), {
+          ownerUid: user.uid,
+          name: newPl.name.slice(0, 80),
+          description: '',
+          trackIds: [],
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }).catch(() => {});
+      }
+    },
+    [user?.uid, user?.emailVerified],
+  );
 
   const handleAddToPlaylist = useCallback(
     (playlistId: string, track: MusicTrack) => {
       cacheTracks([track]);
       setUserPlaylists((prev) =>
-        prev.map((pl) =>
-          pl.id === playlistId && !pl.trackIds.includes(track.id)
-            ? { ...pl, trackIds: [...pl.trackIds, track.id] }
-            : pl,
-        ),
+        prev.map((pl) => {
+          if (pl.id === playlistId && !pl.trackIds.includes(track.id)) {
+            const nextIds = [...pl.trackIds, track.id].slice(0, 200);
+            if (user?.emailVerified) {
+              void setDoc(
+                doc(db, 'users', user.uid, 'playlists', playlistId),
+                {
+                  ownerUid: user.uid,
+                  name: pl.name.slice(0, 80),
+                  description: pl.description || '',
+                  trackIds: nextIds,
+                  createdAt: serverTimestamp(),
+                  updatedAt: serverTimestamp(),
+                },
+                { merge: true },
+              ).catch(() => {});
+            }
+            return { ...pl, trackIds: nextIds };
+          }
+          return pl;
+        }),
       );
     },
-    [cacheTracks],
+    [cacheTracks, user?.uid, user?.emailVerified],
   );
 
-  const handleRemoveFromPlaylist = useCallback((playlistId: string, trackId: string) => {
-    setUserPlaylists((prev) =>
-      prev.map((pl) =>
-        pl.id === playlistId
-          ? { ...pl, trackIds: pl.trackIds.filter((id) => id !== trackId) }
-          : pl,
-      ),
-    );
-  }, []);
+  const handleRemoveFromPlaylist = useCallback(
+    (playlistId: string, trackId: string) => {
+      setUserPlaylists((prev) =>
+        prev.map((pl) => {
+          if (pl.id === playlistId) {
+            const nextIds = pl.trackIds.filter((id) => id !== trackId);
+            if (user?.emailVerified) {
+              void setDoc(
+                doc(db, 'users', user.uid, 'playlists', playlistId),
+                {
+                  ownerUid: user.uid,
+                  name: pl.name.slice(0, 80),
+                  description: pl.description || '',
+                  trackIds: nextIds,
+                  updatedAt: serverTimestamp(),
+                },
+                { merge: true },
+              ).catch(() => {});
+            }
+            return { ...pl, trackIds: nextIds };
+          }
+          return pl;
+        }),
+      );
+    },
+    [user?.uid, user?.emailVerified],
+  );
 
   const handleDeletePlaylist = useCallback(
     (playlistId: string) => {
@@ -996,8 +1201,11 @@ export default function App() {
       if (activeView.type === 'custom_playlist' && activeView.playlistId === playlistId) {
         setActiveView({ type: 'playlists' });
       }
+      if (user?.emailVerified) {
+        void deleteDoc(doc(db, 'users', user.uid, 'playlists', playlistId)).catch(() => {});
+      }
     },
-    [activeView],
+    [activeView, user?.uid, user?.emailVerified],
   );
 
   const handleSelectArtist = useCallback(
@@ -1091,7 +1299,11 @@ export default function App() {
 
   const handleNavigateView = useCallback(
     (next: AppView) => {
-      if (next.type === 'tv' && activeView.type !== 'tv') {
+      if (
+        (next.type === 'tv' || next.type === 'matches') &&
+        activeView.type !== 'tv' &&
+        activeView.type !== 'matches'
+      ) {
         setPreviousView(activeView);
       }
       setActiveView(next);
@@ -1102,7 +1314,7 @@ export default function App() {
   const handleWatchTvFromDiscover = useCallback(
     (channel: TvChannel) => {
       handleSelectTvChannel(channel);
-      if (activeView.type !== 'tv') {
+      if (activeView.type !== 'tv' && activeView.type !== 'matches') {
         setPreviousView(activeView);
       }
       setActiveView({ type: 'tv' });
@@ -1110,11 +1322,69 @@ export default function App() {
     [activeView, handleSelectTvChannel],
   );
 
+  const handleWatchMatchTvFromDiscover = useCallback(
+    (channel?: TvChannel) => {
+      if (channel) handleSelectTvChannel(channel);
+      if (activeView.type !== 'tv' && activeView.type !== 'matches') {
+        setPreviousView(activeView);
+      }
+      setActiveView({ type: 'matches' });
+    },
+    [activeView, handleSelectTvChannel],
+  );
+
   const handlePopOutMiniTv = useCallback(() => {
-    setActiveView(previousView.type !== 'tv' ? previousView : { type: 'discover' });
+    setActiveView(
+      previousView.type !== 'tv' && previousView.type !== 'matches'
+        ? previousView
+        : { type: 'discover' },
+    );
   }, [previousView]);
 
-  // Global keyboard shortcuts (Spacebar play/pause, / or Cmd+K focus search, Escape close modals)
+  const handleWatchVideoTrack = useCallback(
+    async (track: MusicTrack, contextTracks?: MusicTrack[]) => {
+      if (track.youtubeVideoId || track.videoUrl) {
+        handlePlayTrack(track, contextTracks);
+        setShowMusicVideo(true);
+        setVideoTheaterExpanded(true);
+        return;
+      }
+
+      setResolvingVideoTrackId(track.id);
+      try {
+        const params = new URLSearchParams({
+          artist: track.artist || '',
+          title: track.title || '',
+        });
+        const res = await fetch(`/api/videos/resolve?${params.toString()}`);
+        const data = await res.json();
+        if (data?.videoId) {
+          const videoTrack: MusicTrack = {
+            ...track,
+            youtubeVideoId: data.videoId,
+            isVideo: true,
+          };
+          const updatedContext = contextTracks?.map((t) =>
+            t.id === track.id ? videoTrack : t,
+          );
+          cacheTracks([videoTrack]);
+          setQueue((prev) => prev.map((t) => (t.id === track.id ? videoTrack : t)));
+          handlePlayTrack(videoTrack, updatedContext);
+          setShowMusicVideo(true);
+          setVideoTheaterExpanded(true);
+        } else {
+          setActiveView({ type: 'videos' });
+        }
+      } catch {
+        setActiveView({ type: 'videos' });
+      } finally {
+        setResolvingVideoTrackId((prev) => (prev === track.id ? null : prev));
+      }
+    },
+    [cacheTracks, handlePlayTrack],
+  );
+
+  // Global keyboard shortcuts (Space play/pause, / or Cmd+K search, ? shortcuts, N/P/J/L/M/V/T/Q, Esc close)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -1123,15 +1393,22 @@ export default function App() {
         return;
       }
       if (e.code === 'Escape') {
+        if (shortcutsOpen) return setShortcutsOpen(false);
         if (colorMenuOpen) return setColorMenuOpen(false);
         if (spotifyTarget) return setSpotifyTarget(null);
         if (storeModalTrack) return setStoreModalTrack(null);
         if (lyricsModalTrack) return setLyricsModalTrack(null);
+        if (videoTheaterExpanded) return setVideoTheaterExpanded(false);
         if (queueOpen) return setQueueOpen(false);
         if (mobileSearchOpen) return setMobileSearchOpen(false);
       }
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
+        if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+          e.preventDefault();
+          setShortcutsOpen((v) => !v);
+          return;
+        }
         if (e.key === '/') {
           e.preventDefault();
           topSearchInputRef.current?.focus();
@@ -1140,19 +1417,75 @@ export default function App() {
         if (e.code === 'Space' && currentTrack) {
           e.preventDefault();
           handleTogglePlayPause();
+          return;
+        }
+        const low = e.key.toLowerCase();
+        if (low === 'm') {
+          e.preventDefault();
+          setIsMuted((m) => !m);
+        } else if (low === 'n' && currentTrack) {
+          e.preventDefault();
+          handleNext();
+        } else if (low === 'p' && currentTrack) {
+          e.preventDefault();
+          handlePrevious();
+        } else if (low === 'j' && currentTrack && !currentTrack.isLive) {
+          e.preventDefault();
+          handleSeek(Math.max(0, currentTime - 10));
+        } else if (low === 'l' && currentTrack && !currentTrack.isLive) {
+          e.preventDefault();
+          const maxDur = duration > 0 ? duration : currentTrack.durationSec || currentTime + 10;
+          handleSeek(Math.min(maxDur, currentTime + 10));
+        } else if (low === 'v') {
+          e.preventDefault();
+          if (currentTrack?.youtubeVideoId || currentTrack?.videoUrl) {
+            if (videoTheaterExpanded) {
+              setVideoTheaterExpanded(false);
+            } else if (showMusicVideo) {
+              setVideoTheaterExpanded(true);
+            } else {
+              setShowMusicVideo(true);
+            }
+          } else if (currentTrack && !currentTrack.isLive) {
+            handleWatchVideoTrack(currentTrack);
+          } else {
+            setActiveView({ type: 'videos' });
+          }
+        } else if (low === 'h') {
+          e.preventDefault();
+          handleNavigateView({ type: 'home' });
+        } else if (low === 't') {
+          e.preventDefault();
+          handleNavigateView({ type: 'tv' });
+        } else if (low === 's') {
+          e.preventDefault();
+          handleNavigateView({ type: 'matches' });
+        } else if (low === 'q') {
+          e.preventDefault();
+          setQueueOpen((v) => !v);
         }
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [
+    colorMenuOpen,
+    currentTime,
     currentTrack,
+    duration,
+    handleNavigateView,
+    handleNext,
+    handlePrevious,
+    handleSeek,
     handleTogglePlayPause,
     lyricsModalTrack,
     mobileSearchOpen,
     queueOpen,
+    shortcutsOpen,
+    showMusicVideo,
     spotifyTarget,
     storeModalTrack,
+    videoTheaterExpanded,
   ]);
 
   const likedIdSet = useMemo(() => new Set(likedIds), [likedIds]);
@@ -1166,6 +1499,28 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen overflow-hidden flex flex-col bg-[var(--sm-bg)] text-[var(--sm-text)]">
+      {/* Google Maps Demo Key Quota Exhaustion Banner (only shown when triggered) */}
+      {gmpQuotaExceeded && (
+        <div
+          role="alert"
+          className="sticky top-0 z-50 px-4 py-2 bg-amber-950 text-amber-100 border-b border-amber-700/60 flex items-center justify-between gap-3 text-xs"
+        >
+          <span className="inline-flex items-center gap-2">
+            <AlertTriangle size={14} className="text-amber-400 shrink-0" />
+            <span>
+              Demo Google Maps API key daily quota reached. Link your own Google Cloud Maps API key in project environment settings to restore map tiles and autocomplete.
+            </span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setGmpQuotaExceeded(false)}
+            aria-label="Dismiss Maps quota notice"
+            className="p-1 text-amber-300 hover:text-white shrink-0"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
       {/* Hidden Dual-Deck CORS-enabled audio elements for gapless & crossfade transitions */}
       {(['A', 'B'] as const).map((deck) => (
         <audio
@@ -1260,6 +1615,7 @@ export default function App() {
           accentMode={accentMode}
           onChangeSurface={setSurfaceMode}
           onChangeAccent={setAccentMode}
+          onOpenShortcuts={() => setShortcutsOpen(true)}
           mobileOpen={mobileMenuOpen}
           onCloseMobile={() => setMobileMenuOpen(false)}
         />
@@ -1282,7 +1638,7 @@ export default function App() {
                 onSubmit={handleTopSearchSubmit}
                 className={`${
                   mobileSearchOpen ? 'flex flex-1' : 'hidden sm:flex'
-                } items-center gap-2 px-3.5 h-9 sm:w-72 md:w-80 rounded-full bg-[var(--sm-muted)]/65 border border-[var(--sm-border)] focus-within:border-[var(--sm-accent)] focus-within:bg-[var(--sm-bg)] transition-colors`}
+                } items-center gap-2 px-3.5 h-9 sm:w-52 lg:w-56 xl:w-72 rounded-full bg-[var(--sm-muted)]/65 border border-[var(--sm-border)] focus-within:border-[var(--sm-accent)] focus-within:bg-[var(--sm-bg)] transition-colors`}
               >
                 <Search size={14} className="shrink-0 text-[var(--sm-text-muted)]" />
                 <input
@@ -1292,8 +1648,8 @@ export default function App() {
                   onChange={(e) => setTopSearchDraft(e.target.value)}
                   placeholder={
                     activeView.type === 'tv'
-                      ? 'Search live TV channels worldwide...'
-                      : 'Search music, live TV, artists, or Spotify URL...'
+                      ? 'Search live TV channels...'
+                      : 'Search music, TV, artists...'
                   }
                   aria-label="Global search"
                   className="flex-1 min-w-0 bg-transparent text-xs text-[var(--sm-text)] placeholder:text-[var(--sm-text-muted)] focus:outline-none"
@@ -1317,7 +1673,16 @@ export default function App() {
             </div>
 
             {/* Zone 2: Clean single-line view links */}
-            <nav className="hidden md:flex items-center gap-6 text-xs font-medium text-[var(--sm-text-sec)]">
+            <nav className="hidden lg:flex items-center gap-5 xl:gap-6 text-xs font-medium text-[var(--sm-text-sec)]">
+              <button
+                type="button"
+                onClick={() => setActiveView({ type: 'home' })}
+                className={`whitespace-nowrap shrink-0 hover:text-[var(--sm-text)] ${
+                  activeView.type === 'home' ? 'text-[var(--sm-text)] underline underline-offset-4' : ''
+                }`}
+              >
+                Home
+              </button>
               <button
                 type="button"
                 onClick={() => setActiveView({ type: 'discover' })}
@@ -1326,33 +1691,6 @@ export default function App() {
                 }`}
               >
                 Discover
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveView({ type: 'browse' })}
-                className={`whitespace-nowrap shrink-0 hover:text-[var(--sm-text)] ${
-                  activeView.type === 'browse' ? 'text-[var(--sm-text)] underline underline-offset-4' : ''
-                }`}
-              >
-                Catalog
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveView({ type: 'artists' })}
-                className={`whitespace-nowrap shrink-0 hover:text-[var(--sm-text)] ${
-                  activeView.type === 'artists' ? 'text-[var(--sm-text)] underline underline-offset-4' : ''
-                }`}
-              >
-                Artists
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveView({ type: 'rwanda' })}
-                className={`whitespace-nowrap shrink-0 hover:text-[var(--sm-text)] ${
-                  activeView.type === 'rwanda' ? 'text-[var(--sm-text)] underline underline-offset-4' : ''
-                }`}
-              >
-                Rwanda
               </button>
               <button
                 type="button"
@@ -1365,12 +1703,21 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={() => setActiveView({ type: 'stores' })}
+                onClick={() => handleNavigateView({ type: 'matches' })}
                 className={`whitespace-nowrap shrink-0 hover:text-[var(--sm-text)] ${
-                  activeView.type === 'stores' ? 'text-[var(--sm-text)] underline underline-offset-4' : ''
+                  activeView.type === 'matches' ? 'text-[var(--sm-text)] underline underline-offset-4' : ''
                 }`}
               >
-                Stores
+                Matches
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveView({ type: 'videos' })}
+                className={`whitespace-nowrap shrink-0 hover:text-[var(--sm-text)] ${
+                  activeView.type === 'videos' ? 'text-[var(--sm-text)] underline underline-offset-4' : ''
+                }`}
+              >
+                Videos
               </button>
             </nav>
 
@@ -1510,6 +1857,38 @@ export default function App() {
                 <SlidersHorizontal size={13} />
                 <span className="hidden xs:inline sm:inline">Listening Room</span>
               </button>
+
+              {user ? (
+                <button
+                  type="button"
+                  onClick={() => void signOutUser()}
+                  title={`Signed in as ${user.displayName || user.email || 'Listener'} — click to sign out`}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--sm-border)] bg-[var(--sm-bg)] text-xs font-medium text-[var(--sm-text)] hover:border-[var(--sm-accent)] whitespace-nowrap shrink-0"
+                >
+                  {user.photoURL ? (
+                    <img
+                      src={user.photoURL}
+                      alt={user.displayName || 'Profile'}
+                      className="w-5 h-5 rounded-full object-cover"
+                    />
+                  ) : (
+                    <LogOut size={13} />
+                  )}
+                  <span className="hidden xl:inline max-w-[110px] truncate">
+                    {user.displayName?.split(' ')[0] || 'Account'}
+                  </span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void signInWithGoogle()}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--sm-border)] bg-[var(--sm-bg)] text-xs font-medium text-[var(--sm-text)] hover:border-[var(--sm-accent)] whitespace-nowrap shrink-0"
+                >
+                  <LogIn size={13} className="text-[var(--sm-accent-text)]" />
+                  <span className="hidden sm:inline">Sign In</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => setQueueOpen((v) => !v)}
@@ -1524,6 +1903,29 @@ export default function App() {
           {/* Main Scrollable Workspace */}
           <main className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 sm:py-8">
             <div className="max-w-6xl mx-auto">
+              {activeView.type === 'home' && (
+                <HomeView
+                  catalog={catalog}
+                  catalogLoading={catalogLoading}
+                  currentTrack={currentTrack}
+                  isPlaying={isPlaying}
+                  history={history}
+                  likedTracks={likedTracks}
+                  likedTrackIds={likedIdSet}
+                  playlistCount={userPlaylists.length}
+                  resolveTrack={(id) => trackCache[id]}
+                  onNavigate={handleNavigateView}
+                  onPlayTrack={handlePlayTrack}
+                  onPlayAll={handlePlayAll}
+                  onTogglePlayPause={handleTogglePlayPause}
+                  onToggleLike={handleToggleLike}
+                  onSelectArtist={handleSelectArtist}
+                  onWatchTvChannel={handleWatchTvFromDiscover}
+                  onWatchMatchTv={handleWatchMatchTvFromDiscover}
+                  onWatchVideo={handleWatchVideoTrack}
+                />
+              )}
+
               {(activeView.type === 'discover' || activeView.type === 'curated') && (
                 <DiscoverView
                   catalog={catalog}
@@ -1536,7 +1938,12 @@ export default function App() {
                   }
                   onOpenListeningRoom={() => setActiveView({ type: 'listening_room' })}
                   onOpenLiveTv={() => handleNavigateView({ type: 'tv' })}
+                  onOpenMatches={() => handleNavigateView({ type: 'matches' })}
+                  onOpenVideos={() => setActiveView({ type: 'videos' })}
                   onWatchTvChannel={handleWatchTvFromDiscover}
+                  onWatchMatchTv={handleWatchMatchTvFromDiscover}
+                  onWatchVideo={handleWatchVideoTrack}
+                  resolvingVideoTrackId={resolvingVideoTrackId}
                   onOpenStoresDirectory={() => setActiveView({ type: 'stores' })}
                   onOpenArtistsDirectory={() => setActiveView({ type: 'artists' })}
                   onOpenRwandaMusic={() => setActiveView({ type: 'rwanda' })}
@@ -1591,6 +1998,8 @@ export default function App() {
                   onOpenLyrics={setLyricsModalTrack}
                   onOpenSpotifyEmbed={handleOpenSpotifyEmbed}
                   onSelectArtist={handleSelectArtist}
+                  onWatchVideo={handleWatchVideoTrack}
+                  resolvingVideoTrackId={resolvingVideoTrackId}
                   onCacheTracks={cacheTracks}
                 />
               )}
@@ -1615,6 +2024,8 @@ export default function App() {
                   onOpenLyrics={setLyricsModalTrack}
                   onOpenSpotifyEmbed={handleOpenSpotifyEmbed}
                   onSelectArtist={handleSelectArtist}
+                  onWatchVideo={handleWatchVideoTrack}
+                  resolvingVideoTrackId={resolvingVideoTrackId}
                   onSearchRwandaCatalog={(q) => {
                     setSearchQuery(q);
                     setActiveView({ type: 'browse', initialCountry: 'Rwanda' });
@@ -1642,6 +2053,8 @@ export default function App() {
                   onOpenLyrics={setLyricsModalTrack}
                   onOpenSpotifyEmbed={handleOpenSpotifyEmbed}
                   onSelectArtist={handleSelectArtist}
+                  onWatchVideo={handleWatchVideoTrack}
+                  resolvingVideoTrackId={resolvingVideoTrackId}
                   onCacheTracks={cacheTracks}
                 />
               )}
@@ -1657,6 +2070,41 @@ export default function App() {
                   onEnableProxyRelay={() => setTvUseProxyRelay(true)}
                   onPopOutMiniPlayer={handlePopOutMiniTv}
                   onPauseMusic={handlePauseMusicForTv}
+                  onOpenMatches={() => handleNavigateView({ type: 'matches' })}
+                />
+              )}
+
+              {activeView.type === 'matches' && (
+                <LiveMatchView
+                  activeChannel={activeTvChannel}
+                  useProxyRelay={tvUseProxyRelay}
+                  onSelectChannel={handleSelectTvChannel}
+                  onCloseChannel={() => setActiveTvChannel(null)}
+                  onToggleProxyRelay={() => setTvUseProxyRelay((v) => !v)}
+                  onEnableProxyRelay={() => setTvUseProxyRelay(true)}
+                  onPopOutMiniPlayer={handlePopOutMiniTv}
+                  onPauseMusic={handlePauseMusicForTv}
+                  onOpenAllTv={() => handleNavigateView({ type: 'tv' })}
+                />
+              )}
+
+              {activeView.type === 'videos' && (
+                <VideosView
+                  currentTrack={currentTrack}
+                  isPlaying={isPlaying}
+                  likedTrackIds={likedIdSet}
+                  onWatchVideo={handleWatchVideoTrack}
+                  onTogglePlayPause={handleTogglePlayPause}
+                  onOpenTheater={() => {
+                    setShowMusicVideo(true);
+                    setVideoTheaterExpanded(true);
+                  }}
+                  onToggleLike={handleToggleLike}
+                  onAddToQueue={handleAddToQueue}
+                  onOpenLyrics={setLyricsModalTrack}
+                  onOpenLiveTv={() => handleNavigateView({ type: 'tv' })}
+                  onSelectArtist={handleSelectArtist}
+                  onCacheTracks={cacheTracks}
                 />
               )}
 
@@ -1679,8 +2127,47 @@ export default function App() {
                   onOpenStoreModal={setStoreModalTrack}
                   onSelectArtist={handleSelectArtist}
                   onBrowseCatalog={() => setActiveView({ type: 'browse' })}
+                  onWatchVideo={() => {
+                    setShowMusicVideo(true);
+                    setVideoTheaterExpanded(true);
+                  }}
                 />
               )}
+
+              {activeView.type === 'ai_studio' && (
+                <AiStudioView
+                  initialTab={activeView.initialTab}
+                  onPlayTrack={(t) => handlePlayTrack(t)}
+                  onSendToAssistant={(prompt) =>
+                    setActiveView({ type: 'assistant', initialMode: 'chat', initialPrompt: prompt })
+                  }
+                />
+              )}
+
+              {activeView.type === 'assistant' && (
+                <AiAssistantView
+                  initialMode={activeView.initialMode}
+                  initialPrompt={activeView.initialPrompt}
+                />
+              )}
+
+              {activeView.type === 'maps' && (
+                <MapExplorerView
+                  onAskMapsAssistant={(prompt) =>
+                    setActiveView({ type: 'assistant', initialMode: 'maps', initialPrompt: prompt })
+                  }
+                />
+              )}
+
+              {activeView.type === 'stage_3d' && (
+                <Stage3DView
+                  currentTrack={currentTrack}
+                  isPlaying={isPlaying}
+                  analyser={analyserRef.current}
+                />
+              )}
+
+              {activeView.type === 'game_3d' && <RhythmGame3DView />}
 
               {activeView.type === 'stores' && (
                 <StoresView
@@ -1718,6 +2205,8 @@ export default function App() {
                   onOpenLyrics={setLyricsModalTrack}
                   onOpenSpotifyEmbed={handleOpenSpotifyEmbed}
                   onSelectArtist={handleSelectArtist}
+                  onWatchVideo={handleWatchVideoTrack}
+                  resolvingVideoTrackId={resolvingVideoTrackId}
                 />
               )}
 
@@ -1770,6 +2259,8 @@ export default function App() {
                       onOpenLyrics={setLyricsModalTrack}
                       onOpenSpotifyEmbed={handleOpenSpotifyEmbed}
                       onSelectArtist={handleSelectArtist}
+                      onWatchVideo={handleWatchVideoTrack}
+                      resolvingVideoTrackId={resolvingVideoTrackId}
                       onRemoveTrack={handleRemoveFromPlaylist}
                       onDeletePlaylist={handleDeletePlaylist}
                     />
@@ -1784,6 +2275,7 @@ export default function App() {
       <StoreLinksModal track={storeModalTrack} onClose={() => setStoreModalTrack(null)} />
       <SpotifyEmbedModal target={spotifyTarget} onClose={() => setSpotifyTarget(null)} />
       <LyricsModal track={lyricsModalTrack} onClose={() => setLyricsModalTrack(null)} />
+      <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <QueueDrawer
         open={queueOpen}
         onClose={() => setQueueOpen(false)}
@@ -1801,8 +2293,8 @@ export default function App() {
         }
       />
 
-      {/* Floating Mini TV Video Screen when browsing outside TV Theatre */}
-      {activeTvChannel && activeView.type !== 'tv' && (
+      {/* Floating Mini TV Video Screen when browsing outside TV Theatre or Match TV */}
+      {activeTvChannel && activeView.type !== 'tv' && activeView.type !== 'matches' && (
         <aside
           aria-label="Mini TV Video Screen"
           className="fixed bottom-24 right-4 z-40 w-80 sm:w-96 rounded-xl border border-[var(--sm-border)] bg-[var(--sm-surface)] shadow-2xl overflow-hidden"
@@ -1854,19 +2346,110 @@ export default function App() {
         </aside>
       )}
 
-      {/* Persistent Background / Docked Music Video Player (never display:none so browser keeps audio playing) */}
+      {/* Cinema Dimmer Backdrop when Video Theater is expanded */}
+      {videoTheaterExpanded && (currentTrack?.youtubeVideoId || currentTrack?.videoUrl) && !activeTvChannel && (
+        <div
+          className="fixed inset-0 z-40 bg-black/85 backdrop-blur-md"
+          onClick={() => setVideoTheaterExpanded(false)}
+        />
+      )}
+
+      {/* Persistent Background / Mini-Dock / Widescreen Cinema Music Video Player */}
       <aside
         aria-label="Music Video Player"
         className={
-          showMusicVideo && currentTrack?.youtubeVideoId && !activeTvChannel
-            ? 'fixed bottom-24 right-4 z-40 w-80 sm:w-96 rounded-xl border border-[var(--sm-border)] bg-[var(--sm-surface)] shadow-2xl overflow-hidden'
-            : 'fixed bottom-0 left-0 w-[200px] h-[112px] opacity-0 pointer-events-none -z-10 overflow-hidden'
+          videoTheaterExpanded && (currentTrack?.youtubeVideoId || currentTrack?.videoUrl) && !activeTvChannel
+            ? 'fixed inset-4 sm:inset-8 lg:inset-x-20 lg:inset-y-12 z-50 rounded-2xl border border-[var(--sm-border)] bg-[var(--sm-surface)] shadow-2xl overflow-hidden flex flex-col'
+            : showMusicVideo && (currentTrack?.youtubeVideoId || currentTrack?.videoUrl) && !activeTvChannel
+              ? 'fixed bottom-24 right-4 z-40 w-80 sm:w-96 rounded-xl border border-[var(--sm-border)] bg-[var(--sm-surface)] shadow-2xl overflow-hidden'
+              : 'fixed bottom-0 left-0 w-[200px] h-[112px] opacity-0 pointer-events-none -z-10 overflow-hidden'
         }
       >
-        <div className="relative aspect-video bg-[#0E0E0D] w-full">
-          <div ref={ytHostRef} className="w-full h-full" />
+        {videoTheaterExpanded && currentTrack && !activeTvChannel && (
+          <div className="px-4 sm:px-5 py-3 border-b border-[var(--sm-border)] flex items-center justify-between gap-3 shrink-0 bg-[var(--sm-surface)]">
+            <div className="min-w-0 flex items-center gap-2.5">
+              <Film size={16} className="shrink-0 text-[var(--sm-accent-text)]" />
+              <div className="min-w-0">
+                <h2 className="font-display text-sm sm:text-base font-bold text-[var(--sm-text)] truncate">
+                  {currentTrack.title}
+                </h2>
+                <p className="text-xs text-[var(--sm-text-sec)] truncate">
+                  {currentTrack.artist} · {currentTrack.sourceLabel}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => setLyricsModalTrack(currentTrack)}
+                className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[var(--sm-border)] text-xs font-medium text-[var(--sm-text-sec)] hover:text-[var(--sm-text)]"
+              >
+                Lyrics
+              </button>
+              <button
+                type="button"
+                onClick={() => setVideoTheaterExpanded(false)}
+                title="Dock to Corner Mini Video"
+                aria-label="Dock to Corner Mini Video"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[var(--sm-border)] text-xs font-medium text-[var(--sm-text-sec)] hover:text-[var(--sm-text)]"
+              >
+                <Minimize2 size={13} />
+                <span className="hidden sm:inline">Mini</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setVideoTheaterExpanded(false);
+                  setShowMusicVideo(false);
+                }}
+                title="Audio Only Mode"
+                aria-label="Close Video Theater"
+                className="p-1.5 rounded-lg border border-[var(--sm-border)] text-[var(--sm-text-muted)] hover:text-[var(--sm-text)]"
+              >
+                <X size={15} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div
+          className={
+            videoTheaterExpanded && !activeTvChannel
+              ? 'relative flex-1 min-h-0 bg-[#0B0C10] w-full'
+              : 'relative aspect-video bg-[#0B0C10] w-full'
+          }
+        >
+          <div
+            ref={ytHostRef}
+            className={currentTrack?.youtubeVideoId ? 'w-full h-full' : 'hidden'}
+          />
+          {currentTrack?.videoUrl && !currentTrack.youtubeVideoId && (
+            <video
+              key={currentTrack.id}
+              ref={htmlVideoRef}
+              src={currentTrack.videoUrl}
+              controls
+              playsInline
+              autoPlay
+              muted={isMuted}
+              className="w-full h-full object-contain bg-[#0B0C10]"
+              onTimeUpdate={(e) => {
+                setCurrentTime(e.currentTarget.currentTime);
+                if (Number.isFinite(e.currentTarget.duration) && e.currentTarget.duration > 0) {
+                  setDuration(e.currentTarget.duration);
+                }
+              }}
+              onPlay={() => {
+                setIsPlaying(true);
+                recordTrackHistory(currentTrack);
+              }}
+              onPause={() => setIsPlaying(false)}
+              onEnded={() => handleNext()}
+            />
+          )}
         </div>
-        {showMusicVideo && currentTrack?.youtubeVideoId && !activeTvChannel && (
+
+        {!videoTheaterExpanded && showMusicVideo && (currentTrack?.youtubeVideoId || currentTrack?.videoUrl) && !activeTvChannel && (
           <div className="px-3 py-2 flex items-center justify-between gap-2 border-t border-[var(--sm-border)]">
             <div className="min-w-0 flex items-center gap-2">
               <Film size={14} className="shrink-0 text-[var(--sm-accent-text)]" />
@@ -1879,15 +2462,26 @@ export default function App() {
                 </div>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowMusicVideo(false)}
-              title="Minimize Music Video"
-              aria-label="Minimize Music Video"
-              className="p-1.5 rounded-md text-[var(--sm-text-sec)] hover:bg-[var(--sm-muted)] hover:text-[var(--sm-text)] shrink-0"
-            >
-              <Minimize2 size={14} />
-            </button>
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={() => setVideoTheaterExpanded(true)}
+                title="Expand to Cinema Theater"
+                aria-label="Expand to Cinema Theater"
+                className="p-1.5 rounded-md text-[var(--sm-text-sec)] hover:bg-[var(--sm-muted)] hover:text-[var(--sm-text)]"
+              >
+                <Maximize2 size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowMusicVideo(false)}
+                title="Hide Video (Audio Only)"
+                aria-label="Hide Video"
+                className="p-1.5 rounded-md text-[var(--sm-text-sec)] hover:bg-[var(--sm-muted)] hover:text-[var(--sm-text)]"
+              >
+                <Minimize2 size={14} />
+              </button>
+            </div>
           </div>
         )}
       </aside>
@@ -1933,7 +2527,20 @@ export default function App() {
         onSetSleepTimer={setSleepTimerMode}
         onChangeCrossfade={setCrossfadeSec}
         showMusicVideo={showMusicVideo}
-        onToggleMusicVideo={() => setShowMusicVideo((v) => !v)}
+        resolvingMusicVideo={Boolean(currentTrack && resolvingVideoTrackId === currentTrack.id)}
+        onToggleMusicVideo={() => {
+          if (currentTrack && !currentTrack.youtubeVideoId && !currentTrack.videoUrl && !currentTrack.isLive) {
+            handleWatchVideoTrack(currentTrack);
+            return;
+          }
+          if (videoTheaterExpanded) {
+            setVideoTheaterExpanded(false);
+            setShowMusicVideo(false);
+          } else {
+            setShowMusicVideo((v) => !v);
+          }
+        }}
+        onOpenShortcuts={() => setShortcutsOpen(true)}
         onSelectArtist={handleSelectArtist}
       />
     </div>
