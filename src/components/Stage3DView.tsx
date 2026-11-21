@@ -3,12 +3,14 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { ChevronDown, ChevronUp, Disc3, Play, Pause, RotateCcw } from 'lucide-react';
-import type { MusicTrack } from '../types/music';
+import type { MusicTrack, StageVisualizationStyle } from '../types/music';
 
 interface Stage3DViewProps {
   currentTrack: MusicTrack | null;
   isPlaying: boolean;
   analyser: AnalyserNode | null;
+  visualizationStyle?: StageVisualizationStyle;
+  onChangeVisualizationStyle?: (style: StageVisualizationStyle) => void;
 }
 
 type CameraPreset = 'overview' | 'turntable' | 'amp' | 'stage';
@@ -80,20 +82,37 @@ function createVinylTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-export function Stage3DView({ currentTrack, isPlaying, analyser }: Stage3DViewProps) {
+export function Stage3DView({
+  currentTrack,
+  isPlaying,
+  analyser,
+  visualizationStyle = 'bar',
+  onChangeVisualizationStyle,
+}: Stage3DViewProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [preset, setPreset] = useState<CameraPreset>('overview');
   const [mood, setMood] = useState<StageMood>('nocturne');
   const [spinDemo, setSpinDemo] = useState(true);
   const [explode, setExplode] = useState(0);
   const [intensity, setIntensity] = useState(1);
+  const [localStyle, setLocalStyle] = useState<StageVisualizationStyle>(visualizationStyle);
   const [dockCollapsed, setDockCollapsed] = useState(false);
+
+  const activeVizStyle = onChangeVisualizationStyle ? visualizationStyle : localStyle;
+  const handleSelectVizStyle = (next: StageVisualizationStyle) => {
+    if (onChangeVisualizationStyle) {
+      onChangeVisualizationStyle(next);
+    } else {
+      setLocalStyle(next);
+    }
+  };
 
   const presetRef = useRef<CameraPreset>('overview');
   const moodRef = useRef<StageMood>('nocturne');
   const spinDemoRef = useRef(true);
   const explodeRef = useRef(0);
   const intensityRef = useRef(1);
+  const vizStyleRef = useRef<StageVisualizationStyle>(activeVizStyle);
   const isPlayingRef = useRef(isPlaying);
   const analyserRef = useRef(analyser);
 
@@ -102,6 +121,7 @@ export function Stage3DView({ currentTrack, isPlaying, analyser }: Stage3DViewPr
   spinDemoRef.current = spinDemo;
   explodeRef.current = explode;
   intensityRef.current = intensity;
+  vizStyleRef.current = activeVizStyle;
   isPlayingRef.current = isPlaying;
   analyserRef.current = analyser;
 
@@ -409,7 +429,8 @@ export function Stage3DView({ currentTrack, isPlaying, analyser }: Stage3DViewPr
       scene.add(tower);
     });
 
-    // Composite 4: 12-Band Reactive Stage EQ Columns
+    // Composite 4A: 12-Band Reactive Stage EQ Columns ('bar')
+    const barGroup = new THREE.Group();
     const eqBars: THREE.Mesh[] = [];
     const barGeo = trackDisposable(new THREE.BoxGeometry(0.18, 1, 0.14));
     const barMat = trackDisposable(
@@ -426,11 +447,108 @@ export function Stage3DView({ currentTrack, isPlaying, analyser }: Stage3DViewPr
       const bar = new THREE.Mesh(barGeo, barMat);
       bar.position.set(-1.65 + i * 0.3, 0.5, -1.65);
       bar.castShadow = true;
-      scene.add(bar);
+      barGroup.add(bar);
       eqBars.push(bar);
     }
+    scene.add(barGroup);
+
+    // Composite 4B: 24-Segment Radial Halo Ring ('circle')
+    const circleGroup = new THREE.Group();
+    circleGroup.position.set(0, 1.55, -1.75);
+    const haloRing = new THREE.Mesh(
+      trackDisposable(new THREE.TorusGeometry(0.86, 0.028, 16, 64)),
+      brassMat,
+    );
+    circleGroup.add(haloRing);
+
+    const circleSegments: THREE.Mesh[] = [];
+    const circleSegCount = 24;
+    const circleSegGeo = trackDisposable(new THREE.BoxGeometry(0.085, 1, 0.085));
+    const circleInnerR = 0.94;
+    for (let i = 0; i < circleSegCount; i++) {
+      const angle = (i / circleSegCount) * Math.PI * 2;
+      const seg = new THREE.Mesh(circleSegGeo, barMat);
+      seg.rotation.z = angle - Math.PI / 2;
+      seg.position.set(Math.cos(angle) * circleInnerR, Math.sin(angle) * circleInnerR, 0);
+      seg.castShadow = true;
+      circleGroup.add(seg);
+      circleSegments.push(seg);
+    }
+    circleGroup.visible = false;
+    scene.add(circleGroup);
+
+    // Composite 4C: 3D Ribbon Waveform ('waveform')
+    const waveformGroup = new THREE.Group();
+    waveformGroup.position.set(0, 1.48, -1.65);
+    const waveSampleCount = 64;
+    const waveWidth = 4.2;
+    const wavePositions = new Float32Array(waveSampleCount * 2 * 3);
+    const waveLinePositions = new Float32Array(waveSampleCount * 3);
+    const waveIndices: number[] = [];
+
+    for (let i = 0; i < waveSampleCount; i++) {
+      const x = -waveWidth * 0.5 + (i / (waveSampleCount - 1)) * waveWidth;
+      const topIdx = i * 2 * 3;
+      const botIdx = (i * 2 + 1) * 3;
+      wavePositions[topIdx] = x;
+      wavePositions[topIdx + 1] = 0.05;
+      wavePositions[topIdx + 2] = 0;
+      wavePositions[botIdx] = x;
+      wavePositions[botIdx + 1] = -0.05;
+      wavePositions[botIdx + 2] = 0;
+
+      waveLinePositions[i * 3] = x;
+      waveLinePositions[i * 3 + 1] = 0.05;
+      waveLinePositions[i * 3 + 2] = 0.01;
+
+      if (i < waveSampleCount - 1) {
+        const a = i * 2;
+        const b = a + 1;
+        const c = a + 2;
+        const d = a + 3;
+        waveIndices.push(a, b, c, b, d, c);
+      }
+    }
+
+    const waveGeo = trackDisposable(new THREE.BufferGeometry());
+    waveGeo.setAttribute('position', new THREE.BufferAttribute(wavePositions, 3));
+    waveGeo.setIndex(waveIndices);
+    waveGeo.computeVertexNormals();
+
+    const waveRibbonMat = trackDisposable(
+      new THREE.MeshStandardMaterial({
+        color: '#e0a432',
+        emissive: '#a66d0f',
+        emissiveIntensity: 0.72,
+        roughness: 0.25,
+        metalness: 0.65,
+        side: THREE.DoubleSide,
+      }),
+    );
+    const waveRibbonMesh = new THREE.Mesh(waveGeo, waveRibbonMat);
+    waveformGroup.add(waveRibbonMesh);
+
+    const waveLineGeo = trackDisposable(new THREE.BufferGeometry());
+    waveLineGeo.setAttribute('position', new THREE.BufferAttribute(waveLinePositions, 3));
+    const waveLineMat = trackDisposable(new THREE.LineBasicMaterial({ color: '#ffe4a3' }));
+    const waveTopLine = new THREE.Line(waveLineGeo, waveLineMat);
+    waveformGroup.add(waveTopLine);
+
+    const wavePostGeo = trackDisposable(new THREE.CylinderGeometry(0.03, 0.04, 1.55, 12));
+    [-2.16, 2.16].forEach((px) => {
+      const post = new THREE.Mesh(wavePostGeo, brushedAluminumMat);
+      post.position.set(px, -0.7, 0);
+      post.castShadow = true;
+      waveformGroup.add(post);
+    });
+    waveformGroup.visible = false;
+    scene.add(waveformGroup);
 
     const freqData = new Uint8Array(64);
+    const timeData = new Uint8Array(64);
+    const bgDaylight = new THREE.Color('#E6EBF3');
+    const bgCrimson = new THREE.Color('#130A0E');
+    const bgNocturne = new THREE.Color('#0B0C10');
     let smoothPos = new THREE.Vector3(...CAMERA_PRESETS.overview.pos);
     let smoothTarget = new THREE.Vector3(...CAMERA_PRESETS.overview.target);
     let transitioning = false;
@@ -465,13 +583,13 @@ export function Stage3DView({ currentTrack, isPlaying, analyser }: Stage3DViewPr
       const delta = Math.min(clock.getDelta(), 0.05);
       const elapsed = clock.elapsedTime;
 
-      // Lighting mood smoothly adjusts
+      // Lighting mood smoothly adjusts (pre-allocated colors, zero GC)
       const targetBg =
         moodRef.current === 'daylight'
-          ? new THREE.Color('#E6EBF3')
+          ? bgDaylight
           : moodRef.current === 'crimson'
-            ? new THREE.Color('#130A0E')
-            : new THREE.Color('#0B0C10');
+            ? bgCrimson
+            : bgNocturne;
       (scene.background as THREE.Color).lerp(targetBg, 0.08);
       if (scene.fog instanceof THREE.FogExp2) {
         scene.fog.color.copy(scene.background as THREE.Color);
@@ -494,32 +612,95 @@ export function Stage3DView({ currentTrack, isPlaying, analyser }: Stage3DViewPr
         platterGroup.rotation.y -= delta * 1.15;
       }
 
-      // Reactive EQ towers, speaker excursion & stage lighting scaled by visualizer intensity
+      // Reactive EQ towers / radial halo / 3D waveform scaled by visualizer intensity
       const visIntensity = intensityRef.current;
+      const activeStyle = vizStyleRef.current;
+      barGroup.visible = activeStyle === 'bar';
+      circleGroup.visible = activeStyle === 'circle';
+      waveformGroup.visible = activeStyle === 'waveform';
+
       const hasLiveAudio = Boolean(analyserRef.current && isPlayingRef.current);
       if (hasLiveAudio && analyserRef.current) {
         analyserRef.current.getByteFrequencyData(freqData);
+        analyserRef.current.getByteTimeDomainData(timeData);
       }
 
       let totalReactive = 0;
-      for (let i = 0; i < eqBars.length; i++) {
-        let drive = 0.06 + 0.08 * (0.5 + 0.5 * Math.sin(elapsed * 2.2 + i * 0.65));
-        if (hasLiveAudio) {
-          const binIndex = Math.min(i * 3, freqData.length - 1);
-          drive = (freqData[binIndex] / 255) * 1.85;
-        } else if (spinDemoRef.current) {
-          drive = 0.18 + Math.abs(Math.sin(elapsed * 3.1 + i * 0.55)) * 0.95;
-        }
-        const scaledDrive = drive * visIntensity;
-        totalReactive += scaledDrive;
 
-        const targetHeight = Math.max(0.16, 0.16 + scaledDrive);
-        const bar = eqBars[i];
-        bar.scale.y = THREE.MathUtils.damp(bar.scale.y, targetHeight, 8, delta);
-        bar.position.y = bar.scale.y * 0.5;
+      if (activeStyle === 'bar') {
+        for (let i = 0; i < eqBars.length; i++) {
+          let drive = 0.06 + 0.08 * (0.5 + 0.5 * Math.sin(elapsed * 2.2 + i * 0.65));
+          if (hasLiveAudio) {
+            const binIndex = Math.min(i * 3, freqData.length - 1);
+            drive = (freqData[binIndex] / 255) * 1.85;
+          } else if (spinDemoRef.current) {
+            drive = 0.18 + Math.abs(Math.sin(elapsed * 3.1 + i * 0.55)) * 0.95;
+          }
+          const scaledDrive = drive * visIntensity;
+          totalReactive += scaledDrive;
+
+          const targetHeight = Math.max(0.16, 0.16 + scaledDrive);
+          const bar = eqBars[i];
+          bar.scale.y = THREE.MathUtils.damp(bar.scale.y, targetHeight, 8, delta);
+          bar.position.y = bar.scale.y * 0.5;
+        }
+        totalReactive /= eqBars.length;
+      } else if (activeStyle === 'circle') {
+        if (isPlayingRef.current || spinDemoRef.current) {
+          circleGroup.rotation.z += delta * (0.28 + 0.25 * visIntensity);
+        }
+        for (let i = 0; i < circleSegments.length; i++) {
+          let drive = 0.08 + 0.08 * (0.5 + 0.5 * Math.sin(elapsed * 2.0 + i * 0.4));
+          if (hasLiveAudio) {
+            const binIndex = Math.min(Math.floor(i * 1.8), freqData.length - 1);
+            drive = (freqData[binIndex] / 255) * 1.35;
+          } else if (spinDemoRef.current) {
+            drive = 0.14 + Math.abs(Math.sin(elapsed * 3.4 + i * 0.45)) * 0.72;
+          }
+          const scaledDrive = drive * visIntensity;
+          totalReactive += scaledDrive;
+
+          const seg = circleSegments[i];
+          const targetScale = Math.max(0.14, 0.14 + scaledDrive);
+          seg.scale.y = THREE.MathUtils.damp(seg.scale.y, targetScale, 9, delta);
+          const angle = (i / circleSegments.length) * Math.PI * 2;
+          const midR = circleInnerR + seg.scale.y * 0.5;
+          seg.position.set(Math.cos(angle) * midR, Math.sin(angle) * midR, 0);
+        }
+        totalReactive /= circleSegments.length;
+      } else {
+        // 'waveform' 3D Ribbon
+        const posAttr = waveGeo.attributes.position as THREE.BufferAttribute;
+        const linePosAttr = waveLineGeo.attributes.position as THREE.BufferAttribute;
+        let energySum = 0;
+        for (let i = 0; i < waveSampleCount; i++) {
+          const t = i / (waveSampleCount - 1);
+          let sample = Math.sin(elapsed * 2.0 + t * Math.PI * 4) * 0.08;
+          if (hasLiveAudio) {
+            const sampleIdx = Math.min(timeData.length - 1, Math.floor(t * (timeData.length - 1)));
+            sample = ((timeData[sampleIdx] - 128) / 128) * 1.35;
+          } else if (spinDemoRef.current) {
+            sample =
+              Math.sin(elapsed * 4.2 + t * Math.PI * 6) * 0.42 +
+              Math.cos(elapsed * 6.5 - t * Math.PI * 10) * 0.22;
+          }
+          const scaledY = sample * (0.28 + 0.55 * visIntensity);
+          const thickness = 0.05 + Math.abs(scaledY) * 0.22;
+          const zWave = Math.sin(elapsed * 2.4 + t * Math.PI * 3) * 0.14 * Math.min(visIntensity, 2);
+          energySum += Math.abs(scaledY);
+
+          const x = -waveWidth * 0.5 + t * waveWidth;
+          posAttr.setXYZ(i * 2, x, scaledY + thickness, zWave);
+          posAttr.setXYZ(i * 2 + 1, x, scaledY - thickness, zWave);
+          linePosAttr.setXYZ(i, x, scaledY + thickness + 0.008, zWave + 0.01);
+        }
+        posAttr.needsUpdate = true;
+        linePosAttr.needsUpdate = true;
+        waveGeo.computeVertexNormals();
+        totalReactive = energySum / waveSampleCount;
       }
 
-      const avgReactive = totalReactive / eqBars.length;
+      const avgReactive = totalReactive;
       const bassSignal = hasLiveAudio
         ? ((freqData[1] + freqData[2]) / 510) * visIntensity
         : spinDemoRef.current
@@ -537,9 +718,11 @@ export function Stage3DView({ currentTrack, isPlaying, analyser }: Stage3DViewPr
         );
       }
 
-      barMat.emissiveIntensity = THREE.MathUtils.damp(
-        barMat.emissiveIntensity,
-        0.42 + Math.min(avgReactive, 3.0) * 0.55,
+      const targetEmissive = 0.42 + Math.min(avgReactive, 3.0) * 0.55;
+      barMat.emissiveIntensity = THREE.MathUtils.damp(barMat.emissiveIntensity, targetEmissive, 8, delta);
+      waveRibbonMat.emissiveIntensity = THREE.MathUtils.damp(
+        waveRibbonMat.emissiveIntensity,
+        0.5 + Math.min(avgReactive, 3.0) * 0.65,
         8,
         delta,
       );
@@ -731,6 +914,20 @@ export function Stage3DView({ currentTrack, isPlaying, analyser }: Stage3DViewPr
                 </span>
               </label>
 
+              <label className="flex items-center gap-2">
+                <span className="text-[#A1A6B5] whitespace-nowrap">Style</span>
+                <select
+                  value={activeVizStyle}
+                  onChange={(e) => handleSelectVizStyle(e.target.value as StageVisualizationStyle)}
+                  aria-label="3D Stage Visualization Style"
+                  className="px-2 py-1 rounded-md border border-[#252936] bg-[#1B1E28] text-[#F2F0EC] text-xs focus:outline-none focus:border-[#E0A432]"
+                >
+                  <option value="bar">Bar</option>
+                  <option value="circle">Circle</option>
+                  <option value="waveform">Waveform</option>
+                </select>
+              </label>
+
               <div className="flex items-center gap-1.5">
                 <span className="text-[#A1A6B5] mr-1">Lighting:</span>
                 {(['nocturne', 'crimson', 'daylight'] as const).map((m) => (
@@ -755,6 +952,7 @@ export function Stage3DView({ currentTrack, isPlaying, analyser }: Stage3DViewPr
                   setExplode(0);
                   setIntensity(1);
                   setMood('nocturne');
+                  handleSelectVizStyle('bar');
                   handleSelectPreset('overview');
                 }}
                 className="inline-flex items-center gap-1 text-[#A1A6B5] hover:text-[#F2F0EC] ml-auto"

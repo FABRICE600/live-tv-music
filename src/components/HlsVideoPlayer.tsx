@@ -30,6 +30,7 @@ interface HlsVideoPlayerProps {
   controls?: boolean;
   muted?: boolean;
   videoRefExternal?: React.MutableRefObject<HTMLVideoElement | null>;
+  onVideoElementChange?: (el: HTMLVideoElement | null) => void;
 }
 
 export function HlsVideoPlayer({
@@ -45,6 +46,7 @@ export function HlsVideoPlayer({
   controls = true,
   muted = false,
   videoRefExternal,
+  onVideoElementChange,
 }: HlsVideoPlayerProps) {
   const internalRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -89,6 +91,7 @@ export function HlsVideoPlayer({
     const video = internalRef.current;
 
     if (!activeCandidate) {
+      onVideoElementChange?.(null);
       if (embedUrl) {
         onPlaybackStart?.();
         setStatus('embed');
@@ -102,6 +105,7 @@ export function HlsVideoPlayer({
 
     if (!video) return;
     if (videoRefExternal) videoRefExternal.current = video;
+    onVideoElementChange?.(video);
 
     if (hlsRef.current) {
       hlsRef.current.destroy();
@@ -319,6 +323,7 @@ export function HlsVideoPlayer({
         ref={(el) => {
           internalRef.current = el;
           if (videoRefExternal) videoRefExternal.current = el;
+          onVideoElementChange?.(el);
         }}
         controls={controls}
         playsInline

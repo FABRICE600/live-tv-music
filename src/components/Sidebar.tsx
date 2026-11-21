@@ -15,6 +15,7 @@ import {
   X,
   Disc3,
   Tv,
+  Radio,
   Film,
   Keyboard,
   Palette,
@@ -43,6 +44,10 @@ interface SidebarProps {
   onOpenShortcuts: () => void;
   mobileOpen: boolean;
   onCloseMobile: () => void;
+  adaptiveColorHex?: string | null;
+  adaptiveSourceLabel?: string | null;
+  adaptiveThemeEnabled?: boolean;
+  onToggleAdaptiveTheme?: () => void;
 }
 
 export function Sidebar({
@@ -59,6 +64,10 @@ export function Sidebar({
   onOpenShortcuts,
   mobileOpen,
   onCloseMobile,
+  adaptiveColorHex,
+  adaptiveSourceLabel,
+  adaptiveThemeEnabled = true,
+  onToggleAdaptiveTheme,
 }: SidebarProps) {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
@@ -84,7 +93,15 @@ export function Sidebar({
     }`;
 
   const content = (
-    <aside className="w-[248px] h-full flex flex-col bg-[var(--sm-surface)] border-r border-[var(--sm-border)] select-none">
+    <aside
+      className="w-[248px] h-full flex flex-col bg-[var(--sm-surface)] border-r border-[var(--sm-border)] select-none transition-colors duration-700"
+      style={{
+        backgroundImage:
+          adaptiveThemeEnabled && adaptiveColorHex
+            ? 'radial-gradient(circle at 20% 0%, var(--sm-sidebar-tint), transparent 68%)'
+            : undefined,
+      }}
+    >
       {/* Brand header */}
       <div className="h-16 shrink-0 px-5 flex items-center justify-between border-b border-[var(--sm-border)]">
         <button
@@ -197,12 +214,27 @@ export function Sidebar({
               onNavigate({ type: 'tv' });
               onCloseMobile();
             }}
-            className={navItemClass(activeView.type === 'tv')}
+            className={navItemClass(activeView.type === 'tv' && activeView.initialCountry !== 'RW')}
           >
             <span className="flex items-center gap-2.5">
               <Tv size={16} />
               <span>World Live TV</span>
             </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onNavigate({ type: 'tv', initialCountry: 'RW' });
+              onCloseMobile();
+            }}
+            className={navItemClass(activeView.type === 'tv' && activeView.initialCountry === 'RW')}
+          >
+            <span className="flex items-center gap-2.5">
+              <Radio size={16} />
+              <span>Rwanda TV Live</span>
+            </span>
+            <span className="text-[11px] font-mono opacity-80">RW</span>
           </button>
 
           <button
@@ -519,6 +551,34 @@ export function Sidebar({
                 ))}
               </div>
             </div>
+
+            {onToggleAdaptiveTheme && (
+              <button
+                type="button"
+                onClick={onToggleAdaptiveTheme}
+                className="w-full px-2 py-1.5 rounded border border-[var(--sm-border)] bg-[var(--sm-surface)] flex items-center justify-between gap-2 text-[11px] hover:border-[var(--sm-accent)] transition-colors"
+              >
+                <span className="flex items-center gap-1.5 min-w-0">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shrink-0 border border-white/20"
+                    style={{
+                      backgroundColor:
+                        adaptiveThemeEnabled && adaptiveColorHex
+                          ? adaptiveColorHex
+                          : activeAccent.swatch,
+                    }}
+                  />
+                  <span className="truncate text-[var(--sm-text)] font-medium">
+                    {adaptiveSourceLabel && adaptiveThemeEnabled
+                      ? `Sync: ${adaptiveSourceLabel}`
+                      : 'Media Color Sync'}
+                  </span>
+                </span>
+                <span className="font-mono text-[10px] text-[var(--sm-accent-text)] shrink-0">
+                  {adaptiveThemeEnabled ? 'ON' : 'OFF'}
+                </span>
+              </button>
+            )}
           </div>
         )}
 
@@ -533,8 +593,13 @@ export function Sidebar({
               <span className="truncate">{activeSurface.label}</span>
             </span>
             <span
-              className="w-2.5 h-2.5 rounded-full shrink-0"
-              style={{ backgroundColor: activeAccent.swatch }}
+              className="w-2.5 h-2.5 rounded-full shrink-0 transition-colors duration-500"
+              style={{
+                backgroundColor:
+                  adaptiveThemeEnabled && adaptiveColorHex
+                    ? adaptiveColorHex
+                    : activeAccent.swatch,
+              }}
             />
           </button>
           <button

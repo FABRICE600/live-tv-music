@@ -111,11 +111,41 @@ export function HomeView({
   useEffect(() => {
     let active = true;
 
-    fetch('/api/tv/channels?limit=5')
+    fetch('/api/tv/channels?limit=48')
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!active || !data) return;
-        if (Array.isArray(data.channels)) setTvChannels(data.channels.slice(0, 5));
+        if (Array.isArray(data.channels)) {
+          const all: TvChannel[] = data.channels;
+          const rwanda = all.filter((c) => c.countryCode === 'RW').slice(0, 4);
+          const nonRwanda = all.filter((c) => c.countryCode !== 'RW');
+          const music = nonRwanda.filter((c) =>
+            c.categories.some((cat) => cat.toLowerCase().includes('music')),
+          );
+          const sports = nonRwanda.filter((c) =>
+            c.categories.some((cat) => cat.toLowerCase().includes('sport')),
+          );
+          const news = nonRwanda.filter((c) =>
+            c.categories.some((cat) => cat.toLowerCase().includes('news')),
+          );
+          const picked: TvChannel[] = [];
+          const seen = new Set<string>();
+          const pushUnique = (ch?: TvChannel) => {
+            if (!ch || seen.has(ch.id)) return;
+            seen.add(ch.id);
+            picked.push(ch);
+          };
+          rwanda.forEach(pushUnique);
+          pushUnique(music[0]);
+          pushUnique(news[0]);
+          pushUnique(sports[0]);
+          pushUnique(music[1] || news[1]);
+          for (const ch of all) {
+            if (picked.length >= 8) break;
+            pushUnique(ch);
+          }
+          setTvChannels(picked.slice(0, 8));
+        }
         if (typeof data.totalWorldwide === 'number' && data.totalWorldwide > 0) {
           setTvTotalCount(data.totalWorldwide);
         }
@@ -163,20 +193,25 @@ export function HomeView({
         seen.add(resolved.id);
         list.push(resolved);
       }
-      if (list.length >= 4) break;
+      if (list.length >= 8) break;
     }
 
-    if (list.length < 4) {
+    if (list.length < 8) {
       for (const t of likedTracks) {
         if (seen.has(t.id)) continue;
         seen.add(t.id);
         list.push(t);
-        if (list.length >= 4) break;
+        if (list.length >= 8) break;
       }
     }
 
-    if (list.length === 0 && catalog?.trendingTracks) {
-      return catalog.trendingTracks.slice(0, 4);
+    if (list.length < 8 && catalog?.trendingTracks) {
+      for (const t of catalog.trendingTracks) {
+        if (seen.has(t.id)) continue;
+        seen.add(t.id);
+        list.push(t);
+        if (list.length >= 8) break;
+      }
     }
     return list;
   }, [history, resolveTrack, likedTracks, catalog?.trendingTracks]);
@@ -277,6 +312,15 @@ export function HomeView({
             >
               <Tv size={15} />
               <span>Live TV</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigate({ type: 'tv', initialCountry: 'RW' })}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-[var(--sm-border)] bg-[var(--sm-bg)]/60 text-sm font-medium text-[var(--sm-text)] hover:border-[var(--sm-accent)] transition-colors whitespace-nowrap shrink-0"
+            >
+              <span aria-hidden="true">🇷🇼</span>
+              <span>Rwanda TV Live</span>
             </button>
 
             <button
@@ -718,7 +762,7 @@ export function HomeView({
               </div>
             ) : (
               <div className="divide-y divide-[var(--sm-border)]">
-                {tvChannels.map((ch) => (
+                {tvChannels.slice(0, 6).map((ch) => (
                   <button
                     key={ch.id}
                     type="button"
@@ -777,6 +821,71 @@ export function HomeView({
           )}
         </div>
       </section>
+
+      {/* 5. Live TV Video Broadcasts (Rwanda & World Channels) */}
+      {tvChannels.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h2 className="font-display text-xl sm:text-2xl font-bold text-[var(--sm-text)]">
+                Live TV Video Broadcasts
+              </h2>
+              <p className="text-xs sm:text-sm text-[var(--sm-text-sec)]">
+                Rwanda live television, global music channels, international news &amp; live sports
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => onNavigate({ type: 'tv', initialCountry: 'RW' })}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--sm-border)] bg-[var(--sm-surface)] text-xs font-medium text-[var(--sm-text)] hover:border-[var(--sm-accent)] whitespace-nowrap shrink-0"
+              >
+                <span aria-hidden="true">🇷🇼</span>
+                <span>Rwanda TV Live</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate({ type: 'tv' })}
+                className="inline-flex items-center gap-1 text-xs font-medium text-[var(--sm-accent-text)] hover:underline whitespace-nowrap shrink-0"
+              >
+                <span>All Channels</span>
+                <ArrowRight size={13} />
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {tvChannels.slice(0, 8).map((ch) => (
+              <button
+                key={ch.id}
+                type="button"
+                onClick={() => onWatchTvChannel(ch)}
+                className="group p-4 rounded-xl border border-[var(--sm-border)] bg-[var(--sm-surface)] hover:border-[var(--sm-accent)] transition-colors text-left flex items-center gap-3.5"
+              >
+                <div className="w-12 h-12 shrink-0 rounded-lg overflow-hidden border border-[var(--sm-border)] bg-[var(--sm-bg)]">
+                  <CoverArtwork
+                    src={ch.logoUrl || ''}
+                    alt={ch.name}
+                    sizeIcon={18}
+                    roundedClassName="rounded-none"
+                  />
+                </div>
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <div className="text-sm font-semibold text-[var(--sm-text)] truncate group-hover:text-[var(--sm-accent-text)]">
+                    {ch.countryFlag} {ch.name}
+                  </div>
+                  <div className="text-[11px] text-[var(--sm-text-sec)] truncate">
+                    {ch.countryName} · {ch.categories[0] || 'Broadcast'}
+                  </div>
+                  <div className="text-[10px] font-mono tabular-nums text-[var(--sm-text-muted)]">
+                    LIVE · {ch.quality}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* 6. Interactive Studios, Maps & 3D Stage */}
       <section className="space-y-4">

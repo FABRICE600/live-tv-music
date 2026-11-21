@@ -44,11 +44,18 @@ import type {
   SleepTimerMode,
   SpotifyCuratedPlaylist,
   SpotifyEmbedTarget,
+  StageVisualizationStyle,
   SurfaceMode,
   TvChannel,
   UserPlaylist,
 } from './types/music';
 import { ACCENT_MODES, DEFAULT_EQ, EQ_BANDS, SURFACE_MODES } from './utils/formatters';
+import {
+  computeAdaptiveThemePalette,
+  extractDominantColorFromImage,
+  extractDominantColorFromVideo,
+  type ExtractedColorResult,
+} from './utils/colorExtractor';
 import { Sidebar } from './components/Sidebar';
 import { PlayerBar } from './components/PlayerBar';
 import { HomeView } from './components/HomeView';
@@ -177,6 +184,18 @@ export default function App() {
     return 'amber';
   });
   const [colorMenuOpen, setColorMenuOpen] = useState(false);
+  const [adaptiveThemeEnabled, setAdaptiveThemeEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('soundmark_adaptive_theme') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const [extractedColor, setExtractedColor] = useState<{
+    color: ExtractedColorResult;
+    sourceLabel: string;
+  } | null>(null);
+  const [activeTvVideoEl, setActiveTvVideoEl] = useState<HTMLVideoElement | null>(null);
   const [gmpQuotaExceeded, setGmpQuotaExceeded] = useState(false);
   const { user, isAuthReady, signInWithGoogle, signOutUser } = useAuth();
 
@@ -224,6 +243,19 @@ export default function App() {
     const saved = Number(localStorage.getItem('soundmark_crossfade_sec'));
     return Number.isFinite(saved) && saved >= 0 && saved <= 12 ? saved : 0;
   });
+  const [stageVizStyle, setStageVizStyle] = useState<StageVisualizationStyle>(() => {
+    const saved = localStorage.getItem('soundmark_stage_viz_style');
+    if (saved === 'bar' || saved === 'circle' || saved === 'waveform') return saved;
+    return 'bar';
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('soundmark_stage_viz_style', stageVizStyle);
+    } catch {
+      // ignore storage failure
+    }
+  }, [stageVizStyle]);
 
   // Playback state
   const [queue, setQueue] = useState<MusicTrack[]>([]);
@@ -304,6 +336,111 @@ export default function App() {
     localStorage.setItem('soundmark_accent_v2', accentMode);
     localStorage.setItem('soundmark_theme', isDark ? 'dark' : 'light');
   }, [surfaceMode, accentMode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('soundmark_adaptive_theme', adaptiveThemeEnabled ? '1' : '0');
+    } catch {
+      // ignore storage failure
+    }
+  }, [adaptiveThemeEnabled]);
+
+  // Extract dominant color from live TV video stream (with logo fallback) or current music track album art
+  useEffect(() => {
+    if (!adaptiveThemeEnabled) {
+      setExtractedColor(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    if (activeTvChannel) {
+      const label = activeTvChannel.name;
+      if (activeTvChannel.logoUrl) {
+        void extractDominantColorFromImage(activeTvChannel.logoUrl).then((res) => {
+          if (!cancelled && res) {
+            setExtractedColor({ color: res, sourceLabel: label });
+          }
+        });
+      }
+
+      const sampleVideoFrame = () => {
+        if (cancelled || !activeTvVideoEl) return;
+        const sampled = extractDominantColorFromVideo(activeTvVideoEl);
+        if (sampled) {
+          setExtractedColor({ color: sampled, sourceLabel: label });
+        }
+      };
+
+      let intervalId: number | null = null;
+      if (activeTvVideoEl && !activeTvChannel.embedUrl) {
+        sampleVideoFrame();
+        activeTvVideoEl.addEventListener('playing', sampleVideoFrame);
+        activeTvVideoEl.addEventListener('loadeddata', sampleVideoFrame);
+        intervalId = window.setInterval(sampleVideoFrame, 1800);
+      }
+
+      return () => {
+        cancelled = true;
+        if (intervalId !== null) window.clearInterval(intervalId);
+        if (activeTvVideoEl) {
+          activeTvVideoEl.removeEventListener('playing', sampleVideoFrame);
+          activeTvVideoEl.removeEventListener('loadeddata', sampleVideoFrame);
+        }
+      };
+    }
+
+    if (currentTrack?.coverUrl) {
+      const label = currentTrack.title || currentTrack.artist;
+      void extractDominantColorFromImage(currentTrack.coverUrl).then((res) => {
+        if (!cancelled) {
+          setExtractedColor(res ? { color: res, sourceLabel: label } : null);
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setExtractedColor(null);
+    return undefined;
+  }, [
+    adaptiveThemeEnabled,
+    activeTvChannel,
+    activeTvVideoEl,
+    currentTrack?.id,
+    currentTrack?.coverUrl,
+    currentTrack?.title,
+    currentTrack?.artist,
+  ]);
+
+  // Apply adaptive background + sidebar CSS variables while respecting selected light/dark polarity
+  useEffect(() => {
+    const root = document.documentElement;
+    const vars = [
+      '--sm-bg',
+      '--sm-surface',
+      '--sm-muted',
+      '--sm-border',
+      '--sm-surface-glass-rgb',
+      '--sm-dynamic-tint',
+      '--sm-sidebar-tint',
+    ];
+    if (!adaptiveThemeEnabled || !extractedColor) {
+      for (const v of vars) root.style.removeProperty(v);
+      return;
+    }
+
+    const isDark = surfaceMode === 'midnight' || surfaceMode === 'slate';
+    const palette = computeAdaptiveThemePalette(extractedColor.color, isDark);
+    root.style.setProperty('--sm-bg', palette.appBg);
+    root.style.setProperty('--sm-surface', palette.sidebarBg);
+    root.style.setProperty('--sm-muted', palette.mutedBg);
+    root.style.setProperty('--sm-border', palette.borderColor);
+    root.style.setProperty('--sm-surface-glass-rgb', palette.surfaceGlassRgb);
+    root.style.setProperty('--sm-dynamic-tint', palette.dynamicTint);
+    root.style.setProperty('--sm-sidebar-tint', palette.sidebarTint);
+  }, [adaptiveThemeEnabled, extractedColor, surfaceMode]);
 
   // Persist user collections
   useEffect(() => {
@@ -1498,7 +1635,15 @@ export default function App() {
   const activeSurfaceMeta = SURFACE_MODES.find((m) => m.id === surfaceMode) || SURFACE_MODES[0];
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex flex-col bg-[var(--sm-bg)] text-[var(--sm-text)]">
+    <div
+      className="h-screen w-screen overflow-hidden flex flex-col bg-[var(--sm-bg)] text-[var(--sm-text)] transition-colors duration-700"
+      style={{
+        backgroundImage:
+          adaptiveThemeEnabled && extractedColor
+            ? 'radial-gradient(ellipse at 70% -10%, var(--sm-dynamic-tint), transparent 62%)'
+            : undefined,
+      }}
+    >
       {/* Google Maps Demo Key Quota Exhaustion Banner (only shown when triggered) */}
       {gmpQuotaExceeded && (
         <div
@@ -1618,6 +1763,10 @@ export default function App() {
           onOpenShortcuts={() => setShortcutsOpen(true)}
           mobileOpen={mobileMenuOpen}
           onCloseMobile={() => setMobileMenuOpen(false)}
+          adaptiveColorHex={extractedColor?.color.hex || null}
+          adaptiveSourceLabel={extractedColor?.sourceLabel || null}
+          adaptiveThemeEnabled={adaptiveThemeEnabled}
+          onToggleAdaptiveTheme={() => setAdaptiveThemeEnabled((v) => !v)}
         />
 
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
@@ -1696,10 +1845,23 @@ export default function App() {
                 type="button"
                 onClick={() => handleNavigateView({ type: 'tv' })}
                 className={`whitespace-nowrap shrink-0 hover:text-[var(--sm-text)] ${
-                  activeView.type === 'tv' ? 'text-[var(--sm-text)] underline underline-offset-4' : ''
+                  activeView.type === 'tv' && activeView.initialCountry !== 'RW'
+                    ? 'text-[var(--sm-text)] underline underline-offset-4'
+                    : ''
                 }`}
               >
                 Live TV
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNavigateView({ type: 'tv', initialCountry: 'RW' })}
+                className={`whitespace-nowrap shrink-0 hover:text-[var(--sm-text)] ${
+                  activeView.type === 'tv' && activeView.initialCountry === 'RW'
+                    ? 'text-[var(--sm-text)] underline underline-offset-4'
+                    : ''
+                }`}
+              >
+                Rwanda TV
               </button>
               <button
                 type="button"
@@ -1843,6 +2005,34 @@ export default function App() {
                             );
                           })}
                         </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-[var(--sm-border)]">
+                        <button
+                          type="button"
+                          onClick={() => setAdaptiveThemeEnabled((v) => !v)}
+                          className="w-full px-2.5 py-2 rounded-lg border border-[var(--sm-border)] bg-[var(--sm-bg)] flex items-center justify-between gap-2 text-xs hover:border-[var(--sm-accent)] transition-colors"
+                        >
+                          <span className="flex items-center gap-2 min-w-0">
+                            <span
+                              className="w-3 h-3 rounded-full shrink-0 border border-white/20"
+                              style={{
+                                backgroundColor:
+                                  adaptiveThemeEnabled && extractedColor
+                                    ? extractedColor.color.hex
+                                    : 'var(--sm-accent)',
+                              }}
+                            />
+                            <span className="truncate font-medium text-[var(--sm-text)]">
+                              {adaptiveThemeEnabled && extractedColor
+                                ? `Sync: ${extractedColor.sourceLabel}`
+                                : 'Media Color Sync'}
+                            </span>
+                          </span>
+                          <span className="font-mono text-[11px] font-semibold text-[var(--sm-accent-text)] shrink-0">
+                            {adaptiveThemeEnabled ? 'ON' : 'OFF'}
+                          </span>
+                        </button>
                       </div>
                     </div>
                   </>
@@ -2030,6 +2220,8 @@ export default function App() {
                     setSearchQuery(q);
                     setActiveView({ type: 'browse', initialCountry: 'Rwanda' });
                   }}
+                  onWatchTvChannel={handleWatchTvFromDiscover}
+                  onOpenRwandaTv={() => handleNavigateView({ type: 'tv', initialCountry: 'RW' })}
                   onCacheTracks={cacheTracks}
                 />
               )}
@@ -2062,6 +2254,8 @@ export default function App() {
               {activeView.type === 'tv' && (
                 <LiveTvView
                   initialQuery={tvSearchQuery}
+                  initialCountry={activeView.initialCountry}
+                  initialCategory={activeView.initialCategory}
                   activeChannel={activeTvChannel}
                   useProxyRelay={tvUseProxyRelay}
                   onSelectChannel={handleSelectTvChannel}
@@ -2071,6 +2265,7 @@ export default function App() {
                   onPopOutMiniPlayer={handlePopOutMiniTv}
                   onPauseMusic={handlePauseMusicForTv}
                   onOpenMatches={() => handleNavigateView({ type: 'matches' })}
+                  onVideoElementChange={setActiveTvVideoEl}
                 />
               )}
 
@@ -2085,6 +2280,7 @@ export default function App() {
                   onPopOutMiniPlayer={handlePopOutMiniTv}
                   onPauseMusic={handlePauseMusicForTv}
                   onOpenAllTv={() => handleNavigateView({ type: 'tv' })}
+                  onVideoElementChange={setActiveTvVideoEl}
                 />
               )}
 
@@ -2118,6 +2314,9 @@ export default function App() {
                   crossfadeSec={crossfadeSec}
                   isCrossfading={isCrossfading}
                   isLiked={currentTrack ? likedIdSet.has(currentTrack.id) : false}
+                  stageVizStyle={stageVizStyle}
+                  onChangeStageVizStyle={setStageVizStyle}
+                  onOpenStage3D={() => handleNavigateView({ type: 'stage_3d' })}
                   onUpdateEq={setEqSettings}
                   onChangeCrossfade={setCrossfadeSec}
                   onTogglePlayPause={handleTogglePlayPause}
@@ -2164,6 +2363,8 @@ export default function App() {
                   currentTrack={currentTrack}
                   isPlaying={isPlaying}
                   analyser={analyserRef.current}
+                  visualizationStyle={stageVizStyle}
+                  onChangeVisualizationStyle={setStageVizStyle}
                 />
               )}
 
@@ -2308,6 +2509,7 @@ export default function App() {
               useProxyRelay={tvUseProxyRelay}
               onRequestProxyRelay={() => setTvUseProxyRelay(true)}
               onPlaybackStart={handlePauseMusicForTv}
+              onVideoElementChange={setActiveTvVideoEl}
             />
           </div>
           <div className="px-3 py-2 flex items-center justify-between gap-2 border-t border-[var(--sm-border)]">

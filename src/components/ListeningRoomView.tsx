@@ -12,8 +12,10 @@ import {
   Sparkles,
   ArrowLeftRight,
   Film,
+  Box,
+  Waves,
 } from 'lucide-react';
-import type { EqSettings, MusicTrack } from '../types/music';
+import type { EqSettings, MusicTrack, StageVisualizationStyle } from '../types/music';
 import { DEFAULT_EQ, EQ_BANDS, EQ_PRESETS, formatDuration } from '../utils/formatters';
 import { CoverArtwork } from './CoverArtwork';
 import { SpectrumVisualizer } from './SpectrumVisualizer';
@@ -27,6 +29,9 @@ interface ListeningRoomViewProps {
   crossfadeSec: number;
   isCrossfading: boolean;
   isLiked: boolean;
+  stageVizStyle?: StageVisualizationStyle;
+  onChangeStageVizStyle?: (style: StageVisualizationStyle) => void;
+  onOpenStage3D?: () => void;
   onUpdateEq: (next: EqSettings) => void;
   onChangeCrossfade: (seconds: number) => void;
   onTogglePlayPause: () => void;
@@ -48,6 +53,9 @@ export function ListeningRoomView({
   crossfadeSec,
   isCrossfading,
   isLiked,
+  stageVizStyle = 'bar',
+  onChangeStageVizStyle,
+  onOpenStage3D,
   onUpdateEq,
   onChangeCrossfade,
   onTogglePlayPause,
@@ -61,6 +69,85 @@ export function ListeningRoomView({
 }: ListeningRoomViewProps) {
   const [lyrics, setLyrics] = useState<string | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
+  const [localVizStyle, setLocalVizStyle] = useState<StageVisualizationStyle>(stageVizStyle);
+  const [bassReactiveGlass, setBassReactiveGlass] = useState(true);
+  const [bassMetrics, setBassMetrics] = useState<{ bassPct: number; glassOpacity: number }>({
+    bassPct: 0,
+    glassOpacity: 0.9,
+  });
+
+  const activeVizStyle = onChangeStageVizStyle ? stageVizStyle : localVizStyle;
+  const handleSelectVizStyle = (nextStyle: StageVisualizationStyle) => {
+    if (onChangeStageVizStyle) {
+      onChangeStageVizStyle(nextStyle);
+    } else {
+      setLocalVizStyle(nextStyle);
+    }
+  };
+
+  // Modulate the app's --sm-surface-glass-opacity based on Web Audio analyser bass intensity
+  useEffect(() => {
+    const rootStyle = document.documentElement.style;
+    if (!bassReactiveGlass) {
+      rootStyle.removeProperty('--sm-surface-glass-opacity');
+      setBassMetrics({ bassPct: 0, glassOpacity: 0.9 });
+      return;
+    }
+
+    let rafId = 0;
+    let smoothedBass = 0;
+    let phase = 0;
+    let lastUiSync = 0;
+    const freqData = analyser ? new Uint8Array(analyser.frequencyBinCount) : null;
+
+    const tick = (now: number) => {
+      let rawBass = 0;
+
+      if (analyser && freqData && hasLiveSignal && isPlaying) {
+        analyser.getByteFrequencyData(freqData);
+        const bassBinCount = Math.min(6, freqData.length);
+        let weightedSum = 0;
+        let weightTotal = 0;
+        for (let i = 0; i < bassBinCount; i++) {
+          const weight = bassBinCount - i;
+          weightedSum += (freqData[i] / 255) * weight;
+          weightTotal += weight;
+        }
+        const liveBass = weightTotal > 0 ? weightedSum / weightTotal : 0;
+        if (liveBass > 0.005) {
+          rawBass = liveBass;
+        } else {
+          // Smooth harmonic bass envelope if remote stream blocks WebAudio CORS samples
+          phase += 0.075;
+          rawBass = Math.max(0, Math.min(0.85, 0.25 + Math.sin(phase) * 0.25 + Math.cos(phase * 1.7) * 0.15));
+        }
+      } else if (isPlaying) {
+        phase += 0.075;
+        rawBass = Math.max(0, Math.min(0.85, 0.25 + Math.sin(phase) * 0.25 + Math.cos(phase * 1.7) * 0.15));
+      }
+
+      smoothedBass += (rawBass - smoothedBass) * 0.16;
+      // Map bass intensity (0 -> 1) smoothly to glass opacity (0.90 -> 0.46)
+      const nextOpacity = Math.max(0.46, Math.min(0.9, 0.9 - smoothedBass * 0.44));
+      rootStyle.setProperty('--sm-surface-glass-opacity', nextOpacity.toFixed(3));
+
+      if (now - lastUiSync > 90) {
+        lastUiSync = now;
+        setBassMetrics({
+          bassPct: Math.round(smoothedBass * 100),
+          glassOpacity: Number(nextOpacity.toFixed(2)),
+        });
+      }
+
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(rafId);
+      rootStyle.removeProperty('--sm-surface-glass-opacity');
+    };
+  }, [analyser, hasLiveSignal, isPlaying, bassReactiveGlass]);
 
   useEffect(() => {
     if (!currentTrack) {
@@ -109,8 +196,21 @@ export function ListeningRoomView({
   };
 
   return (
-    <div className="space-y-8 pb-8">
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--sm-border)] pb-5">
+    <div className="relative space-y-8 pb-8">
+      {/* Subtle bass-reactive ambient aura visible beneath surface-glass panels */}
+      {bassReactiveGlass && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -inset-x-4 -top-4 bottom-0 rounded-3xl transition-opacity duration-150"
+          style={{
+            background:
+              'radial-gradient(65% 45% at 25% 15%, var(--sm-accent-soft) 0%, transparent 70%), radial-gradient(55% 40% at 80% 35%, var(--sm-accent-soft) 0%, transparent 72%)',
+            opacity: Math.min(1, 0.35 + (bassMetrics.bassPct / 100) * 0.65),
+          }}
+        />
+      )}
+
+      <div className="relative flex flex-wrap items-end justify-between gap-4 border-b border-[var(--sm-border)] pb-5">
         <div>
           <p className="text-xs font-medium text-[var(--sm-text-muted)] mb-1">
             Studio Console
@@ -119,7 +219,22 @@ export function ListeningRoomView({
             Listening Room & Parametric EQ
           </h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setBassReactiveGlass((v) => !v)}
+            title="Adjusts the app's surface-glass opacity from bass intensity"
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-semibold transition-colors whitespace-nowrap border ${
+              bassReactiveGlass
+                ? 'border-[var(--sm-accent)] bg-[var(--sm-accent-soft)] text-[var(--sm-accent-text)]'
+                : 'border-[var(--sm-border)] bg-[var(--sm-muted)] text-[var(--sm-text-sec)]'
+            }`}
+          >
+            <Waves size={13} />
+            <span>
+              Bass Glass {bassReactiveGlass ? `${Math.round(bassMetrics.glassOpacity * 100)}%` : 'Off'}
+            </span>
+          </button>
           <button
             type="button"
             onClick={() => onUpdateEq({ ...eqSettings, enabled: !eqSettings.enabled })}
@@ -143,9 +258,9 @@ export function ListeningRoomView({
       </div>
 
       {/* Main Split: Sleeve & Spectrum + Parametric EQ Rack */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+      <div className="relative grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
         {/* Left: Active Sleeve & Spectrum */}
-        <div className="lg:col-span-5 border border-[var(--sm-border)] rounded-2xl bg-[var(--sm-surface)] p-6 flex flex-col justify-between gap-6">
+        <div className="lg:col-span-5 border border-[var(--sm-border)] rounded-2xl bg-[var(--sm-surface-glass)] backdrop-blur-md p-6 flex flex-col justify-between gap-6">
           {currentTrack ? (
             <>
               <div className="space-y-5">
@@ -267,14 +382,44 @@ export function ListeningRoomView({
         {/* Right: Real-Time FFT Spectrum + 5-Band EQ + Playback Speed */}
         <div className="lg:col-span-7 flex flex-col gap-6">
           {/* Spectrum Box */}
-          <div className="border border-[var(--sm-border)] rounded-2xl bg-[var(--sm-surface)] p-5 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-[var(--sm-text-sec)]">
-                Real-Time Frequency Analyzer
-              </span>
-              <span className="font-mono tabular-nums text-[11px] text-[var(--sm-text-muted)]">
-                {hasLiveSignal && isPlaying ? 'WebAudio FFT Active' : isPlaying ? 'Harmonic Monitor' : 'Standby'}
-              </span>
+          <div className="border border-[var(--sm-border)] rounded-2xl bg-[var(--sm-surface-glass)] backdrop-blur-md p-5 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="space-y-0.5">
+                <span className="text-xs font-medium text-[var(--sm-text-sec)] block">
+                  Real-Time Frequency Analyzer &amp; Stage 3D Style
+                </span>
+                <span className="font-mono tabular-nums text-[11px] text-[var(--sm-text-muted)] block">
+                  {hasLiveSignal && isPlaying ? 'WebAudio FFT Active' : isPlaying ? 'Harmonic Monitor' : 'Standby'}
+                  {bassReactiveGlass ? ` · Bass ${bassMetrics.bassPct}% · Glass ${Math.round(bassMetrics.glassOpacity * 100)}%` : ''}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex items-center gap-2 text-xs text-[var(--sm-text-sec)]">
+                  <span className="whitespace-nowrap">3D Style</span>
+                  <select
+                    value={activeVizStyle}
+                    onChange={(e) => handleSelectVizStyle(e.target.value as StageVisualizationStyle)}
+                    aria-label="Stage 3D Visualization Style"
+                    className="px-2.5 py-1.5 rounded-lg border border-[var(--sm-border)] bg-[var(--sm-bg)] text-xs font-medium text-[var(--sm-text)] focus:outline-none focus:border-[var(--sm-accent)]"
+                  >
+                    <option value="bar">Bar</option>
+                    <option value="circle">Circle</option>
+                    <option value="waveform">Waveform</option>
+                  </select>
+                </label>
+
+                {onOpenStage3D && (
+                  <button
+                    type="button"
+                    onClick={onOpenStage3D}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--sm-border)] bg-[var(--sm-bg)]/70 hover:border-[var(--sm-accent)] text-xs font-medium text-[var(--sm-text)] whitespace-nowrap transition-colors"
+                  >
+                    <Box size={13} className="text-[var(--sm-accent-text)]" />
+                    <span>Open 3D Stage</span>
+                  </button>
+                )}
+              </div>
             </div>
             <div className="rounded-xl bg-[var(--sm-bg)] border border-[var(--sm-border)] p-3">
               <SpectrumVisualizer
@@ -283,12 +428,13 @@ export function ListeningRoomView({
                 hasLiveSignal={hasLiveSignal}
                 height={130}
                 bars={56}
+                visualizationStyle={activeVizStyle}
               />
             </div>
           </div>
 
           {/* 5-Band Equalizer Rack */}
-          <div className="border border-[var(--sm-border)] rounded-2xl bg-[var(--sm-surface)] p-5 space-y-5 flex-1">
+          <div className="border border-[var(--sm-border)] rounded-2xl bg-[var(--sm-surface-glass)] backdrop-blur-md p-5 space-y-5 flex-1">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-semibold text-[var(--sm-text)]">
@@ -431,7 +577,7 @@ export function ListeningRoomView({
 
       {/* Liner Notes & Lyrics Panel */}
       {currentTrack && (
-        <div className="border border-[var(--sm-border)] rounded-xl bg-[var(--sm-surface)] p-6 space-y-4">
+        <div className="relative border border-[var(--sm-border)] rounded-xl bg-[var(--sm-surface-glass)] backdrop-blur-md p-6 space-y-4">
           <div className="flex items-center justify-between gap-4 border-b border-[var(--sm-border)] pb-3">
             <div className="flex items-center gap-2">
               <FileText size={16} className="text-[var(--sm-accent-text)]" />

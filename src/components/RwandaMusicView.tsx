@@ -8,8 +8,9 @@ import {
   ArrowRight,
   Music2,
   UserPlus,
+  Tv,
 } from 'lucide-react';
-import type { ArtistSummary, MusicTrack, UserPlaylist } from '../types/music';
+import type { ArtistSummary, MusicTrack, TvChannel, UserPlaylist } from '../types/music';
 import { CoverArtwork } from './CoverArtwork';
 import { TrackTable } from './TrackTable';
 
@@ -38,6 +39,8 @@ interface RwandaMusicViewProps {
   onSelectArtist: (artistId: string, artistName?: string) => void;
   onWatchVideo?: (track: MusicTrack, contextTracks?: MusicTrack[]) => void;
   resolvingVideoTrackId?: string | null;
+  onWatchTvChannel?: (channel: TvChannel) => void;
+  onOpenRwandaTv?: () => void;
   onSearchRwandaCatalog: (query: string) => void;
   onCacheTracks: (tracks: MusicTrack[]) => void;
 }
@@ -68,10 +71,13 @@ export function RwandaMusicView({
   onSelectArtist,
   onWatchVideo,
   resolvingVideoTrackId,
+  onWatchTvChannel,
+  onOpenRwandaTv,
   onSearchRwandaCatalog,
   onCacheTracks,
 }: RwandaMusicViewProps) {
   const [data, setData] = useState<RwandaMusicResponse | null>(null);
+  const [rwandaTvChannels, setRwandaTvChannels] = useState<TvChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState('All');
   const [query, setQuery] = useState('');
@@ -79,11 +85,18 @@ export function RwandaMusicView({
   useEffect(() => {
     let active = true;
     setLoading(true);
-    fetch('/api/music/rwanda')
-      .then((r) => r.json())
-      .then((res: RwandaMusicResponse) => {
+    Promise.all([
+      fetch('/api/music/rwanda').then((r) => r.json()),
+      fetch('/api/tv/rwanda')
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+    ])
+      .then(([res, tvRes]: [RwandaMusicResponse, { channels?: TvChannel[] } | null]) => {
         if (!active) return;
         setData(res);
+        if (tvRes && Array.isArray(tvRes.channels)) {
+          setRwandaTvChannels(tvRes.channels);
+        }
         onCacheTracks([...(res.trendingTracks || []), ...(res.liveRadio || [])]);
       })
       .catch(() => {
@@ -164,16 +177,28 @@ export function RwandaMusicView({
           </p>
         </div>
 
-        {data && data.trendingTracks.length > 0 && (
-          <button
-            type="button"
-            onClick={() => onPlayAll(data.trendingTracks)}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[var(--sm-accent)] text-[var(--sm-on-accent)] text-xs sm:text-sm font-semibold hover:opacity-90 whitespace-nowrap shrink-0"
-          >
-            <Play size={15} fill="currentColor" />
-            <span>Play Rwanda Top Mix</span>
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          {onOpenRwandaTv && (
+            <button
+              type="button"
+              onClick={onOpenRwandaTv}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-[var(--sm-border)] bg-[var(--sm-surface)] hover:border-[var(--sm-accent)] text-xs sm:text-sm font-semibold text-[var(--sm-text)] whitespace-nowrap shrink-0"
+            >
+              <Tv size={15} className="text-[var(--sm-accent-text)]" />
+              <span>Rwanda TV Live</span>
+            </button>
+          )}
+          {data && data.trendingTracks.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onPlayAll(data.trendingTracks)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[var(--sm-accent)] text-[var(--sm-on-accent)] text-xs sm:text-sm font-semibold hover:opacity-90 whitespace-nowrap shrink-0"
+            >
+              <Play size={15} fill="currentColor" />
+              <span>Play Rwanda Top Mix</span>
+            </button>
+          )}
+        </div>
       </section>
 
       {/* Search & Custom Artist/Song Lookup */}
@@ -364,6 +389,65 @@ export function RwandaMusicView({
             onWatchVideo={onWatchVideo}
             resolvingVideoTrackId={resolvingVideoTrackId}
           />
+        </section>
+      )}
+
+      {/* Live Rwanda TV Broadcasts */}
+      {!loading && rwandaTvChannels.length > 0 && onWatchTvChannel && (
+        <section className="space-y-4 pt-2 border-t border-[var(--sm-border)]">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h2 className="font-display text-xl sm:text-2xl font-bold text-[var(--sm-text)]">
+                Televiziyo zo mu Rwanda (Rwanda TV Live)
+              </h2>
+              <p className="text-xs sm:text-sm text-[var(--sm-text-sec)]">
+                Watch {rwandaTvChannels.length} live Rwandan TV channels directly in the TV Theatre — RTV, Magic Sports TV Live, KC2, Isibo TV, TV1, TV10, BTN TV, Isango TV, Flash TV, B+ TV, Pacis TV &amp; more
+              </p>
+            </div>
+            {onOpenRwandaTv && (
+              <button
+                type="button"
+                onClick={onOpenRwandaTv}
+                className="inline-flex items-center gap-1 text-xs font-medium text-[var(--sm-accent-text)] hover:underline whitespace-nowrap"
+              >
+                <span>Open Rwanda TV Theatre</span>
+                <ArrowRight size={13} />
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {rwandaTvChannels.map((ch) => (
+              <button
+                key={ch.id}
+                type="button"
+                onClick={() => onWatchTvChannel(ch)}
+                className="text-left p-4 rounded-xl border border-[var(--sm-border)] bg-[var(--sm-surface)] hover:border-[var(--sm-accent)] transition-colors flex items-center gap-3.5"
+              >
+                <div className="w-12 h-12 shrink-0 rounded-lg overflow-hidden border border-[var(--sm-border)] bg-[var(--sm-bg)]">
+                  <CoverArtwork
+                    src={ch.logoUrl}
+                    alt={ch.name}
+                    className="w-full h-full object-contain p-1"
+                    roundedClassName="rounded-none"
+                    sizeIcon={18}
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 text-[11px] font-mono text-[#15803D] dark:text-emerald-400">
+                    <Tv size={11} />
+                    <span>LIVE TV · {ch.quality}</span>
+                  </div>
+                  <div className="text-sm font-semibold text-[var(--sm-text)] truncate">
+                    {ch.countryFlag} {ch.name}
+                  </div>
+                  <div className="text-xs text-[var(--sm-text-muted)] truncate">
+                    {ch.categories.join(' · ')}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
         </section>
       )}
 

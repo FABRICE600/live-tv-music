@@ -17,18 +17,121 @@ import {
   Trophy,
   Clock,
   ArrowRight,
+  CalendarClock,
 } from 'lucide-react';
 import type {
+  EpgChannelGuide,
   LiveMatchItem,
   TvCategoryOption,
   TvChannel,
   TvCountryOption,
+  TvEpgResponse,
 } from '../types/music';
 import { CoverArtwork } from './CoverArtwork';
 import { HlsVideoPlayer } from './HlsVideoPlayer';
 import { fetchLiveSportsScoreboard } from '../services/footballApi';
 
 const QUICK_FEATURED_CHANNELS: TvChannel[] = [
+  {
+    id: 'RwandaTV.rw',
+    name: 'Rwanda TV (RBA)',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['general', 'news'],
+    logoUrl: 'https://i.imgur.com/4nbGvxW.png',
+    streamUrl: 'https://5c46fa289c89f.streamlock.net/rtv25/rtv/playlist.m3u8',
+    alternateUrls: ['http://197.243.19.131:1935/rtv25/rtv/chunklist.m3u8'],
+    quality: '720p',
+    website: 'https://www.rba.co.rw/tv',
+  },
+  {
+    id: 'KC2.rw',
+    name: 'KC2 Rwanda (RBA)',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['entertainment', 'music'],
+    logoUrl: 'https://i.imgur.com/PsYPzNc.png',
+    streamUrl: 'https://5c46fa289c89f.streamlock.net/kc2/kc2/chunklist.m3u8',
+    alternateUrls: ['http://197.243.19.131:1935/kc2/kc2/chunklist.m3u8'],
+    quality: '720p',
+    website: 'https://www.rba.co.rw/kc2',
+  },
+  {
+    id: 'MagicSportsTV.rw',
+    name: 'Magic Sports TV Live (RBA)',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['sports', 'general'],
+    logoUrl: 'https://i.imgur.com/Le7ZxXn.png',
+    streamUrl: 'https://5c46fa289c89f.streamlock.net/rtv25/rtv/playlist.m3u8',
+    alternateUrls: [
+      'https://5c46fa289c89f.streamlock.net/pub1live/mystream/playlist.m3u8',
+      'https://bein-xtra-bein.amagi.tv/playlist.m3u8',
+    ],
+    quality: '720p',
+    website: 'https://www.rba.co.rw/',
+  },
+  {
+    id: 'IsiboTV.rw',
+    name: 'Isibo TV',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['entertainment', 'music'],
+    logoUrl: 'https://i.imgur.com/bXhEeTC.png',
+    streamUrl: 'https://5c46fa289c89f.streamlock.net/pub2live/myStream/playlist.m3u8',
+    quality: '720p',
+    website: 'https://www.isibomedia.com/',
+  },
+  {
+    id: 'TV1.rw',
+    name: 'TV1 Rwanda',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['general', 'news'],
+    logoUrl: 'https://i.imgur.com/nQNOHJx.png',
+    streamUrl: 'https://live.tv1.rw/index.m3u8',
+    quality: '720p',
+    website: 'https://www.tv1.rw/',
+  },
+  {
+    id: 'BTNTV.rw',
+    name: 'BTN TV Rwanda',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['general', 'news'],
+    logoUrl: 'https://i.imgur.com/WmaP8zP.png',
+    streamUrl: 'https://tv.btnrwanda.com:3973/live/btnv2live.m3u8',
+    quality: '720p',
+    website: 'https://btnrwanda.com/',
+  },
+  {
+    id: 'AfrobeatTVEntertainment.uk',
+    name: 'Afrobeat TV Entertainment',
+    countryCode: 'GB',
+    countryName: 'United Kingdom',
+    countryFlag: '🇬🇧',
+    categories: ['music', 'entertainment'],
+    logoUrl: 'https://i.imgur.com/232ndRK.png',
+    streamUrl: 'https://stream.ecable.tv/afrobeats/index.m3u8',
+    quality: '1080p',
+  },
+  {
+    id: 'TRACEUK.uk',
+    name: 'TRACE UK (Music)',
+    countryCode: 'GB',
+    countryName: 'United Kingdom',
+    countryFlag: '🇬🇧',
+    categories: ['music', 'entertainment'],
+    logoUrl: '',
+    streamUrl: 'https://amg01131-tracetv-amg01131c5-stirr-us-4389.playouts.now.amagi.tv/playlist.m3u8',
+    quality: '1080p',
+  },
   {
     id: 'France24.fr',
     name: 'France 24 English',
@@ -46,6 +149,17 @@ const QUICK_FEATURED_CHANNELS: TvChannel[] = [
     quality: '1080p',
   },
   {
+    id: 'AlJazeeraEnglish.qa',
+    name: 'Al Jazeera English',
+    countryCode: 'QA',
+    countryName: 'Qatar',
+    countryFlag: '🇶🇦',
+    categories: ['news'],
+    logoUrl: 'https://i.imgur.com/7bRVpnu.png',
+    streamUrl: 'https://live-hls-apps-aje-fa.getaj.net/AJE/index.m3u8',
+    quality: '1080p',
+  },
+  {
     id: 'DWEnglish.de',
     name: 'DW English',
     countryCode: 'DE',
@@ -57,59 +171,22 @@ const QUICK_FEATURED_CHANNELS: TvChannel[] = [
     quality: '1080p',
   },
   {
-    id: 'TRACEUK.uk',
-    name: 'TRACE UK (Music)',
-    countryCode: 'GB',
-    countryName: 'United Kingdom',
-    countryFlag: '🇬🇧',
-    categories: ['music', 'entertainment'],
-    logoUrl: '',
-    streamUrl: 'https://amg01131-tracetv-amg01131c5-stirr-us-4389.playouts.now.amagi.tv/playlist.m3u8',
-    quality: '1080p',
-  },
-  {
-    id: 'RwandaTV.rw',
-    name: 'Rwanda TV',
-    countryCode: 'RW',
-    countryName: 'Rwanda',
-    countryFlag: '🇷🇼',
-    categories: ['general', 'news'],
-    logoUrl: '',
-    streamUrl: 'https://5c46fa289c89f.streamlock.net/rtv25/rtv/playlist.m3u8',
-    quality: '720p',
-  },
-  {
-    id: 'MagicSportTV.rw',
-    name: 'Magic Sport TV (RBA)',
-    countryCode: 'RW',
-    countryName: 'Rwanda',
-    countryFlag: '🇷🇼',
-    categories: ['sports', 'general'],
-    logoUrl: '',
-    streamUrl: 'https://5c46fa289c89f.streamlock.net/rtv25/rtv/playlist.m3u8',
-    alternateUrls: [
-      'https://5c46fa289c89f.streamlock.net/pub1live/mystream/playlist.m3u8',
-      'https://bein-xtra-bein.amagi.tv/playlist.m3u8',
-    ],
-    quality: '720p',
-    website: 'https://www.rba.co.rw/',
-  },
-  {
-    id: 'Vevo90s00s.uk',
-    name: "Vevo '90s & '00s",
-    countryCode: 'GB',
-    countryName: 'United Kingdom',
-    countryFlag: '🇬🇧',
-    categories: ['music'],
-    logoUrl: '',
-    streamUrl: 'https://d1cj21il6keqa2.cloudfront.net/playlist.m3u8',
-    alternateUrls: ['https://d2n3779oy6efpi.cloudfront.net/playlist.m3u8'],
+    id: 'beINSPORTSXTRA.us',
+    name: 'beIN SPORTS XTRA',
+    countryCode: 'US',
+    countryName: 'United States',
+    countryFlag: '🇺🇸',
+    categories: ['sports'],
+    logoUrl: 'https://i.ibb.co/HT49GPmB/XTRA-2.png',
+    streamUrl: 'https://bein-xtra-bein.amagi.tv/playlist.m3u8',
     quality: '1080p',
   },
 ];
 
 interface LiveTvViewProps {
   initialQuery?: string;
+  initialCountry?: string;
+  initialCategory?: string;
   activeChannel: TvChannel | null;
   useProxyRelay: boolean;
   onSelectChannel: (channel: TvChannel) => void;
@@ -119,6 +196,7 @@ interface LiveTvViewProps {
   onPopOutMiniPlayer: () => void;
   onPauseMusic: () => void;
   onOpenMatches?: () => void;
+  onVideoElementChange?: (el: HTMLVideoElement | null) => void;
 }
 
 function loadTvFavorites(): string[] {
@@ -130,8 +208,18 @@ function loadTvFavorites(): string[] {
   }
 }
 
+function formatEpgTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '--:--';
+  }
+}
+
 export function LiveTvView({
   initialQuery = '',
+  initialCountry,
+  initialCategory,
   activeChannel,
   useProxyRelay,
   onSelectChannel,
@@ -141,14 +229,23 @@ export function LiveTvView({
   onPopOutMiniPlayer,
   onPauseMusic,
   onOpenMatches,
+  onVideoElementChange,
 }: LiveTvViewProps) {
   const [query, setQuery] = useState(initialQuery);
-  const [country, setCountry] = useState('ALL');
-  const [category, setCategory] = useState('all');
+  const [country, setCountry] = useState(initialCountry || 'ALL');
+  const [category, setCategory] = useState(initialCategory || 'all');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [liveMatches, setLiveMatches] = useState<LiveMatchItem[]>([]);
   const [sportsChannels, setSportsChannels] = useState<TvChannel[]>([]);
+  const [rwandaChannels, setRwandaChannels] = useState<TvChannel[]>(
+    () => QUICK_FEATURED_CHANNELS.filter((c) => c.countryCode === 'RW'),
+  );
+  const [epgData, setEpgData] = useState<TvEpgResponse | null>(null);
+  const [epgLoading, setEpgLoading] = useState(false);
+  const [epgOpen, setEpgOpen] = useState(false);
+  const [epgTab, setEpgTab] = useState<'channel' | 'lineup'>('channel');
+  const [epgRegionFilter, setEpgRegionFilter] = useState<'ALL' | 'RW' | 'INTL'>('ALL');
 
   const [channels, setChannels] = useState<TvChannel[]>([]);
   const [countries, setCountries] = useState<TvCountryOption[]>([]);
@@ -169,8 +266,45 @@ export function LiveTvView({
   }, [initialQuery]);
 
   useEffect(() => {
+    if (initialCountry) {
+      setCountry(initialCountry);
+      setCategory('all');
+      setFavoritesOnly(false);
+      userStoppedRef.current = false;
+    } else {
+      setCountry('ALL');
+    }
+  }, [initialCountry]);
+
+  useEffect(() => {
+    if (initialCategory) {
+      setCategory(initialCategory);
+      setFavoritesOnly(false);
+    }
+  }, [initialCategory]);
+
+  useEffect(() => {
     localStorage.setItem('soundmark_tv_favorites', JSON.stringify(favoriteIds));
   }, [favoriteIds]);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/tv/rwanda')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!active || !data) return;
+        if (Array.isArray(data.channels) && data.channels.length > 0) {
+          setRwandaChannels(data.channels);
+          if (initialCountry === 'RW' && (!activeChannel || activeChannel.countryCode !== 'RW')) {
+            onSelectChannel(data.channels[0]);
+          }
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [initialCountry]);
 
   const fetchChannels = useCallback(
     async (nextOffset = 0, append = false, batchLimit = 96) => {
@@ -244,6 +378,90 @@ export function LiveTvView({
       window.clearInterval(timer);
     };
   }, []);
+
+  // Fetch Electronic Program Guide (EPG) for selected channel + Rwandan & International lineup
+  const loadEpg = useCallback(
+    async (channelId?: string) => {
+      setEpgLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (channelId) params.set('channelId', channelId);
+        const res = await fetch(`/api/tv/epg?${params.toString()}`);
+        if (!res.ok) return;
+        const data = (await res.json()) as TvEpgResponse;
+        setEpgData(data);
+      } catch {
+        // Ignore transient EPG fetch errors
+      } finally {
+        setEpgLoading(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    void loadEpg(activeChannel?.id);
+    const timer = window.setInterval(() => {
+      void loadEpg(activeChannel?.id);
+    }, 60000);
+    return () => window.clearInterval(timer);
+  }, [activeChannel?.id, loadEpg]);
+
+  useEffect(() => {
+    if (!epgOpen) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setEpgOpen(false);
+    };
+    window.addEventListener('keydown', onEsc);
+    return () => window.removeEventListener('keydown', onEsc);
+  }, [epgOpen]);
+
+  const handleTuneFromEpg = useCallback(
+    async (guide: EpgChannelGuide) => {
+      const pool = [
+        ...rwandaChannels,
+        ...channels,
+        ...sportsChannels,
+        ...QUICK_FEATURED_CHANNELS,
+      ];
+      const existing = pool.find((c) => c.id === guide.channelId);
+      if (existing) {
+        userStoppedRef.current = false;
+        onSelectChannel(existing);
+        setEpgTab('channel');
+        return;
+      }
+      try {
+        const res = await fetch(
+          `/api/tv/channels?q=${encodeURIComponent(guide.channelName)}&limit=12`,
+        );
+        if (res.ok) {
+          const data = (await res.json()) as { channels?: TvChannel[] };
+          const found =
+            data.channels?.find((c) => c.id === guide.channelId) || data.channels?.[0];
+          if (found) {
+            userStoppedRef.current = false;
+            onSelectChannel(found);
+            setEpgTab('channel');
+          }
+        }
+      } catch {
+        // Ignore tune lookup failure
+      }
+    },
+    [channels, onSelectChannel, rwandaChannels, sportsChannels],
+  );
+
+  const visibleEpgGuides = useMemo(() => {
+    const list = epgData?.guides || [];
+    if (epgRegionFilter === 'RW') {
+      return list.filter((g) => g.countryCode === 'RW');
+    }
+    if (epgRegionFilter === 'INTL') {
+      return list.filter((g) => g.countryCode !== 'RW');
+    }
+    return list;
+  }, [epgData?.guides, epgRegionFilter]);
 
   const toggleFavorite = (id: string) => {
     setFavoriteIds((prev) =>
@@ -407,6 +625,7 @@ export function LiveTvView({
               onNextChannel={handleNextChannel}
               onPlaybackStart={onPauseMusic}
               videoRefExternal={videoRef}
+              onVideoElementChange={onVideoElementChange}
             />
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center gap-5 p-6 text-center bg-gradient-to-b from-[#171715] to-[#0E0E0D] text-[#F3F1EA]">
@@ -433,6 +652,275 @@ export function LiveTvView({
                     </span>
                   </button>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Electronic Program Guide (EPG) Overlay */}
+          {epgOpen && (
+            <div
+              role="dialog"
+              aria-label="Electronic Program Guide"
+              className="absolute inset-0 z-30 bg-[#0B0C10]/94 backdrop-blur-md text-[#F2F0EC] flex flex-col overflow-hidden"
+            >
+              {/* EPG Overlay Top Bar */}
+              <div className="px-4 sm:px-5 py-3 border-b border-white/10 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <CalendarClock size={16} className="text-[var(--sm-accent-text)] shrink-0" />
+                  <div className="min-w-0">
+                    <h3 className="font-display text-sm sm:text-base font-bold truncate">
+                      Electronic Program Guide (EPG)
+                    </h3>
+                    <p className="text-[11px] text-white/60 truncate">
+                      {activeChannel
+                        ? `${activeChannel.countryFlag} ${activeChannel.name} · Live & Upcoming Schedule`
+                        : 'Rwandan & International Live TV Lineup'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="inline-flex rounded-lg border border-white/15 bg-white/5 p-0.5 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setEpgTab('channel')}
+                      className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
+                        epgTab === 'channel'
+                          ? 'bg-[var(--sm-accent)] text-[var(--sm-on-accent)]'
+                          : 'text-white/75 hover:text-white'
+                      }`}
+                    >
+                      Channel Schedule
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEpgTab('lineup')}
+                      className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
+                        epgTab === 'lineup'
+                          ? 'bg-[var(--sm-accent)] text-[var(--sm-on-accent)]'
+                          : 'text-white/75 hover:text-white'
+                      }`}
+                    >
+                      Rwanda &amp; World Guide
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void loadEpg(activeChannel?.id)}
+                    title="Refresh EPG"
+                    aria-label="Refresh EPG"
+                    className="p-1.5 rounded-lg border border-white/15 text-white/75 hover:text-white hover:bg-white/10"
+                  >
+                    <RefreshCw size={13} className={epgLoading ? 'animate-spin' : ''} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setEpgOpen(false)}
+                    aria-label="Close EPG overlay"
+                    className="p-1.5 rounded-lg border border-white/15 text-white/75 hover:text-white hover:bg-white/10"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+
+              {/* EPG Body */}
+              <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5">
+                {epgTab === 'channel' ? (
+                  epgData?.selectedGuide ? (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="text-lg">{epgData.selectedGuide.countryFlag}</span>
+                          <div className="min-w-0">
+                            <div className="text-sm font-bold text-white truncate">
+                              {epgData.selectedGuide.channelName}
+                            </div>
+                            <div className="text-[11px] font-mono text-white/55">
+                              {epgData.selectedGuide.categories.join(' · ')}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setEpgTab('lineup')}
+                          className="text-xs font-medium text-[var(--sm-accent-text)] hover:underline whitespace-nowrap"
+                        >
+                          Compare All Channels →
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                        {epgData.selectedGuide.programs.map((prog) => (
+                          <div
+                            key={prog.id}
+                            className={`rounded-xl border p-3.5 space-y-2 ${
+                              prog.isLiveNow
+                                ? 'border-[var(--sm-accent)] bg-white/10'
+                                : 'border-white/10 bg-white/5'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="inline-flex items-center gap-1.5 text-[11px] font-mono tabular-nums text-white/80">
+                                <Clock size={11} className="text-[var(--sm-accent-text)]" />
+                                {formatEpgTime(prog.startIso)} – {formatEpgTime(prog.endIso)}
+                              </span>
+                              <span
+                                className={`text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                                  prog.isLiveNow
+                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
+                                    : 'bg-white/10 text-white/70'
+                                }`}
+                              >
+                                {prog.isLiveNow ? 'ON NOW' : prog.category}
+                              </span>
+                            </div>
+
+                            <div className="text-sm font-semibold text-white leading-snug">
+                              {prog.title}
+                            </div>
+                            <p className="text-xs text-white/65 leading-relaxed line-clamp-2">
+                              {prog.description}
+                            </p>
+
+                            {prog.isLiveNow && (
+                              <div className="space-y-1 pt-1">
+                                <div className="flex items-center justify-between text-[10px] font-mono text-white/60">
+                                  <span>{prog.category}</span>
+                                  <span>{prog.progressPct}% elapsed</span>
+                                </div>
+                                <div className="h-1.5 rounded-full bg-white/15 overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full bg-[var(--sm-accent)] transition-all"
+                                    style={{ width: `${prog.progressPct}%` }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-xs text-white/65">
+                      {epgLoading ? 'Loading program schedule...' : 'Select a channel to view its program schedule.'}
+                    </div>
+                  )
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 text-xs">
+                        {(['ALL', 'RW', 'INTL'] as const).map((region) => (
+                          <button
+                            key={region}
+                            type="button"
+                            onClick={() => setEpgRegionFilter(region)}
+                            className={`px-3 py-1 rounded-full border text-[11px] font-medium transition-colors ${
+                              epgRegionFilter === region
+                                ? 'border-[var(--sm-accent)] bg-[var(--sm-accent)] text-[var(--sm-on-accent)]'
+                                : 'border-white/15 bg-white/5 text-white/75 hover:text-white'
+                            }`}
+                          >
+                            {region === 'ALL'
+                              ? 'All Channels'
+                              : region === 'RW'
+                                ? '🇷🇼 Rwanda TV'
+                                : '🌍 International'}
+                          </button>
+                        ))}
+                      </div>
+                      <span className="text-[11px] font-mono text-white/55">
+                        {visibleEpgGuides.length} channels · Local time
+                      </span>
+                    </div>
+
+                    <div className="space-y-2">
+                      {visibleEpgGuides.map((guide) => {
+                        const nowProg = guide.programs.find((p) => p.isLiveNow) || guide.programs[0];
+                        const nextProg = guide.programs[1];
+                        const isTuned = activeChannel?.id === guide.channelId;
+
+                        return (
+                          <div
+                            key={guide.channelId}
+                            className={`rounded-xl border p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                              isTuned
+                                ? 'border-[var(--sm-accent)] bg-white/10'
+                                : 'border-white/10 bg-white/5 hover:bg-white/[0.07]'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0 sm:w-56 shrink-0">
+                              <div className="w-9 h-9 rounded-lg bg-black/40 border border-white/15 overflow-hidden shrink-0">
+                                <CoverArtwork
+                                  src={guide.logoUrl}
+                                  alt={guide.channelName}
+                                  className="w-full h-full object-contain p-1"
+                                  roundedClassName="rounded-none"
+                                  sizeIcon={14}
+                                />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold text-white truncate">
+                                  {guide.countryFlag} {guide.channelName}
+                                </div>
+                                <div className="text-[10px] font-mono text-white/55 truncate">
+                                  {guide.categories.join(' · ')}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                              {nowProg && (
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5 text-[10px] font-mono text-emerald-300">
+                                    <span>ON NOW</span>
+                                    <span>
+                                      {formatEpgTime(nowProg.startIso)}–{formatEpgTime(nowProg.endIso)}
+                                    </span>
+                                  </div>
+                                  <div className="font-semibold text-white truncate">
+                                    {nowProg.title}
+                                  </div>
+                                  <div className="mt-1 h-1 rounded-full bg-white/15 overflow-hidden">
+                                    <div
+                                      className="h-full bg-[var(--sm-accent)]"
+                                      style={{ width: `${nowProg.progressPct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                              {nextProg && (
+                                <div className="min-w-0 border-t sm:border-t-0 sm:border-l border-white/10 pt-1.5 sm:pt-0 sm:pl-3">
+                                  <div className="text-[10px] font-mono text-white/55">
+                                    UP NEXT · {formatEpgTime(nextProg.startIso)}
+                                  </div>
+                                  <div className="font-medium text-white/85 truncate">
+                                    {nextProg.title}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => void handleTuneFromEpg(guide)}
+                              className={`inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold shrink-0 transition-colors ${
+                                isTuned
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
+                                  : 'bg-[var(--sm-accent)] text-[var(--sm-on-accent)] hover:opacity-90'
+                              }`}
+                            >
+                              <Play size={11} fill="currentColor" />
+                              <span>{isTuned ? 'Watching' : 'Tune'}</span>
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -474,6 +962,23 @@ export function LiveTvView({
           )}
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* EPG TV Guide Overlay Toggle */}
+            <button
+              type="button"
+              onClick={() => {
+                setEpgTab(activeChannel ? 'channel' : 'lineup');
+                setEpgOpen((v) => !v);
+              }}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors whitespace-nowrap ${
+                epgOpen
+                  ? 'border-[var(--sm-accent)] bg-[var(--sm-accent)] text-[var(--sm-on-accent)]'
+                  : 'border-[var(--sm-border)] bg-[var(--sm-bg)] text-[var(--sm-text)] hover:border-[var(--sm-accent)]'
+              }`}
+            >
+              <CalendarClock size={13} />
+              <span>TV Guide (EPG)</span>
+            </button>
+
             {/* Channel Zapper */}
             <div className="inline-flex items-center border border-[var(--sm-border)] rounded-lg overflow-hidden">
               <button
@@ -578,7 +1083,142 @@ export function LiveTvView({
             )}
           </div>
         </div>
+
+        {/* Live EPG On Now / Up Next Summary Strip */}
+        {epgData?.selectedGuide && epgData.selectedGuide.programs.length > 0 && (
+          <div className="px-4 sm:px-5 py-2.5 border-t border-[var(--sm-border)] bg-[var(--sm-bg)]/70 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 min-w-0">
+              {(() => {
+                const nowShow = epgData.selectedGuide.programs[0];
+                const nextShow = epgData.selectedGuide.programs[1];
+                return (
+                  <>
+                    <span className="inline-flex items-center gap-1.5 min-w-0">
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-500 font-mono text-[10px] font-semibold shrink-0">
+                        ON NOW
+                      </span>
+                      <span className="font-semibold text-[var(--sm-text)] truncate max-w-[260px] sm:max-w-sm">
+                        {nowShow.title}
+                      </span>
+                      <span className="font-mono text-[11px] text-[var(--sm-text-muted)] shrink-0">
+                        ({formatEpgTime(nowShow.startIso)}–{formatEpgTime(nowShow.endIso)})
+                      </span>
+                    </span>
+                    {nextShow && (
+                      <span className="inline-flex items-center gap-1.5 min-w-0 text-[var(--sm-text-sec)]">
+                        <span className="font-mono text-[10px] text-[var(--sm-text-muted)] shrink-0">
+                          NEXT:
+                        </span>
+                        <span className="truncate max-w-[240px]">{nextShow.title}</span>
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setEpgTab('lineup');
+                setEpgOpen(true);
+              }}
+              className="text-[11px] font-medium text-[var(--sm-accent-text)] hover:underline whitespace-nowrap shrink-0"
+            >
+              Full Rwanda &amp; World Guide →
+            </button>
+          </div>
+        )}
       </section>
+
+      {/* Dedicated Rwanda TV Live Quick-Tune Strip */}
+      {rwandaChannels.length > 0 && (
+        <section className="space-y-3 border border-[var(--sm-border)] rounded-2xl bg-[var(--sm-surface)] p-4 sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span aria-hidden="true" className="text-base">
+                🇷🇼
+              </span>
+              <div>
+                <h2 className="font-display text-base font-bold text-[var(--sm-text)]">
+                  Rwanda TV Live ({rwandaChannels.length} Channels)
+                </h2>
+                <p className="text-[11px] text-[var(--sm-text-sec)]">
+                  All Rwandan live television: RTV, Magic Sports TV Live, KC2, Isibo TV, TV1, TV10, BTN TV, Isango TV, Flash TV, B+ TV, Pacis TV, Genesis TV, Authentic TV &amp; more
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              {rwandaChannels.find((c) => c.id === 'MagicSportsTV.rw') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const magic = rwandaChannels.find((c) => c.id === 'MagicSportsTV.rw');
+                    if (magic) {
+                      userStoppedRef.current = false;
+                      onSelectChannel(magic);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--sm-accent)] text-[var(--sm-on-accent)] text-xs font-semibold hover:opacity-90 whitespace-nowrap"
+                >
+                  <Play size={11} fill="currentColor" />
+                  <span>Magic Sports TV Live</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setCountry((c) => (c === 'RW' ? 'ALL' : 'RW'));
+                  setCategory('all');
+                  setFavoritesOnly(false);
+                }}
+                className="text-xs font-medium text-[var(--sm-accent-text)] hover:underline whitespace-nowrap"
+              >
+                {country === 'RW' ? 'Show All World Channels' : 'Filter Grid to Rwanda Only'}
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+            {rwandaChannels.map((ch) => {
+              const isSelected = activeChannel?.id === ch.id;
+              return (
+                <button
+                  key={ch.id}
+                  type="button"
+                  onClick={() => {
+                    userStoppedRef.current = false;
+                    onSelectChannel(ch);
+                  }}
+                  className={`text-left p-2.5 rounded-xl border transition-colors flex items-center gap-2.5 ${
+                    isSelected
+                      ? 'border-[var(--sm-accent)] bg-[var(--sm-accent-soft)]'
+                      : 'border-[var(--sm-border)] bg-[var(--sm-bg)]/70 hover:border-[var(--sm-accent)]'
+                  }`}
+                >
+                  <div className="w-9 h-9 shrink-0 rounded-lg overflow-hidden border border-[var(--sm-border)] bg-[var(--sm-surface)]">
+                    <CoverArtwork
+                      src={ch.logoUrl}
+                      alt={ch.name}
+                      className="w-full h-full object-contain p-0.5"
+                      roundedClassName="rounded-none"
+                      sizeIcon={14}
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1 text-[10px] font-mono text-[#15803D] dark:text-emerald-400">
+                      <Radio size={9} />
+                      <span>{isSelected ? 'ON AIR' : 'LIVE'}</span>
+                    </div>
+                    <div className="text-xs font-semibold text-[var(--sm-text)] truncate">
+                      {ch.name}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Live & Upcoming Match Scores Strip */}
       {liveMatches.length > 0 && (

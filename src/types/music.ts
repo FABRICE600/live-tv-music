@@ -230,7 +230,7 @@ export type AppView =
   | { type: 'rwanda' }
   | { type: 'artist_profile'; artistId: string; artistName?: string }
   | { type: 'videos' }
-  | { type: 'tv' }
+  | { type: 'tv'; initialCountry?: string; initialCategory?: string }
   | { type: 'matches' }
   | { type: 'listening_room' }
   | { type: 'ai_studio'; initialTab?: 'music' | 'image' | 'video' | 'transcribe' }
@@ -254,4 +254,32 @@ export interface SpotifyEmbedTarget {
 
 export type SurfaceMode = 'paper' | 'ivory' | 'midnight' | 'slate';
 export type AccentMode = 'vermilion' | 'cobalt' | 'emerald' | 'amber' | 'plum';
+export type StageVisualizationStyle = 'bar' | 'circle' | 'waveform';
+
+export interface EpgProgram {
+  id: string;
+  title: string;
+  category: string;
+  description: string;
+  startIso: string;
+  endIso: string;
+  isLiveNow: boolean;
+  progressPct: number;
+}
+
+export interface EpgChannelGuide {
+  channelId: string;
+  channelName: string;
+  countryCode: string;
+  countryFlag: string;
+  categories: string[];
+  logoUrl: string;
+  programs: EpgProgram[];
+}
+
+export interface TvEpgResponse {
+  generatedAt: string;
+  selectedGuide: EpgChannelGuide | null;
+  guides: EpgChannelGuide[];
+}
 

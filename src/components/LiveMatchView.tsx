@@ -39,6 +39,7 @@ interface LiveMatchViewProps {
   onPopOutMiniPlayer: () => void;
   onPauseMusic: () => void;
   onOpenAllTv: () => void;
+  onVideoElementChange?: (el: HTMLVideoElement | null) => void;
 }
 
 type SportFilter = 'all' | 'soccer' | 'basketball' | 'football' | 'hockey';
@@ -108,6 +109,7 @@ function pickBroadcastChannel(
     .toLowerCase();
 
   const keywordPairs: Array<[string, string[]]> = [
+    ['magic', ['magic', 'rwanda', 'primus', 'ferwafa', 'rba']],
     ['bein', ['bein']],
     ['cbs', ['cbs']],
     ['fifa', ['fifa']],
@@ -142,6 +144,7 @@ export function LiveMatchView({
   onPopOutMiniPlayer,
   onPauseMusic,
   onOpenAllTv,
+  onVideoElementChange,
 }: LiveMatchViewProps) {
   const [sportFilter, setSportFilter] = useState<SportFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -368,6 +371,7 @@ export function LiveMatchView({
               onNextChannel={handleNextChannel}
               onPlaybackStart={onPauseMusic}
               videoRefExternal={videoRef}
+              onVideoElementChange={onVideoElementChange}
             />
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center gap-4 p-6 text-center bg-gradient-to-b from-[#171715] to-[#0E0E0D] text-[#F3F1EA]">

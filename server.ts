@@ -62,17 +62,24 @@ const RADIO_HOSTS = [
 
 const COUNTRIES = [
   'All Countries',
+  'Rwanda',
   'United States',
   'United Kingdom',
+  'Kenya',
+  'Uganda',
+  'Tanzania',
+  'Nigeria',
+  'Ghana',
+  'South Africa',
+  'DR Congo',
   'Japan',
   'Germany',
   'France',
-  'Nigeria',
-  'Rwanda',
-  'Ghana',
-  'Kenya',
-  'South Africa',
   'Brazil',
+  'Jamaica',
+  'South Korea',
+  'Spain',
+  'India',
   'Iceland',
   'Canada',
   'Australia',
@@ -90,15 +97,22 @@ const PLATFORMS = [
 
 const GENRES = [
   'All Genres',
+  'Afrobeats',
+  'Afropop',
+  'Amapiano',
+  'Gakondo',
+  'Gospel',
   'Electronic',
   'Ambient',
   'Jazz',
-  'Acoustic',
+  'R&B',
+  'Soul',
   'Hip-Hop',
-  'Afrobeats',
+  'Acoustic',
   'Classical',
   'Indie',
   'Pop',
+  'Rock',
   'World',
 ];
 
@@ -221,6 +235,24 @@ const SPOTIFY_PLAYLISTS: SpotifyCuratedPlaylist[] = [
     coverUrl: ARTWORK_AMBIENT,
     spotifyEmbedUrl: 'https://open.spotify.com/embed/playlist/37i9dQZF1DX3Ogo9pFvBkY',
     spotifyUrl: 'https://open.spotify.com/playlist/37i9dQZF1DX3Ogo9pFvBkY',
+  },
+  {
+    id: 'sp-afrobeats-kigali',
+    title: 'African Heat & East Africa Pulse',
+    subtitle: 'High-energy Afrobeats, Kigali Afropop, Amapiano grooves, and dancefloor anthems.',
+    curator: 'Spotify Africa',
+    coverUrl: ARTWORK_ELECTRONIC,
+    spotifyEmbedUrl: 'https://open.spotify.com/embed/playlist/37i9dQZF1DX51Q56x2y3wI',
+    spotifyUrl: 'https://open.spotify.com/playlist/37i9dQZF1DX51Q56x2y3wI',
+  },
+  {
+    id: 'sp-soul-hiphop',
+    title: 'Global Neo-Soul & Golden Hip-Hop',
+    subtitle: 'Warm boom-bap drums, lush R&B harmonies, and lyrical studio sessions.',
+    curator: 'Spotify Soul & Rap',
+    coverUrl: ARTWORK_JAZZ,
+    spotifyEmbedUrl: 'https://open.spotify.com/embed/playlist/37i9dQZF1DX4o1oenSJRJd',
+    spotifyUrl: 'https://open.spotify.com/playlist/37i9dQZF1DX4o1oenSJRJd',
   },
 ];
 
@@ -1281,22 +1313,44 @@ async function buildDiscoverCatalog(forceRefresh = false): Promise<DiscoverCatal
     ambientRes,
     jazzRes,
     acousticRes,
-    radioStations,
+    hipHopRes,
+    soulRes,
+    globalRadioStations,
+    rwandaRadioStations,
     afrobeatsFull,
+    rwandaShowcase,
+    rwandaArtists,
   ] = await Promise.all([
-    fetchAudiusTrending(undefined, 14),
-    fetchAudiusTrending('Electronic', 8),
-    fetchAudiusTrending('Ambient', 8),
-    searchAudiusTracks('jazz saxophone trio', 8),
-    searchAudiusTracks('acoustic guitar indie', 8),
-    fetchRadioStations(undefined, undefined, 8),
-    searchAudiusTracks('afrobeats neo soul', 6),
+    fetchAudiusTrending(undefined, 24),
+    fetchAudiusTrending('Electronic', 10),
+    fetchAudiusTrending('Ambient', 10),
+    searchAudiusTracks('jazz saxophone trio', 10),
+    searchAudiusTracks('acoustic guitar indie', 10),
+    fetchAudiusTrending('Hip-Hop/Rap', 10),
+    fetchAudiusTrending('R&B/Soul', 10),
+    fetchRadioStations(undefined, undefined, 12),
+    fetchRadioStations('Rwanda', undefined, 6),
+    searchAudiusTracks('afrobeats amapiano kigali', 12),
+    getRwandaTrendingShowcase().catch(() => []),
+    getRwandaArtistsCatalog().catch(() => []),
   ]);
 
-  const trendingTracks =
-    trendingRes.tracks.length > 0
-      ? trendingRes.tracks
-      : [...RESILIENT_FALLBACK_TRACKS, ...afrobeatsFull];
+  const radioDedup = new Map<string, MusicTrack>();
+  for (const st of [...rwandaRadioStations, ...globalRadioStations]) {
+    if (!radioDedup.has(st.id)) radioDedup.set(st.id, st);
+  }
+  const radioStations = Array.from(radioDedup.values()).slice(0, 16);
+
+  const trendingDedup = new Map<string, MusicTrack>();
+  for (const t of [
+    ...trendingRes.tracks,
+    ...rwandaShowcase.slice(0, 8),
+    ...afrobeatsFull.slice(0, 6),
+    ...RESILIENT_FALLBACK_TRACKS,
+  ]) {
+    if (!trendingDedup.has(t.id)) trendingDedup.set(t.id, t);
+  }
+  const trendingTracks = Array.from(trendingDedup.values()).slice(0, 28);
 
   const curatedPlaylists: CuratedPlaylist[] = [
     {
@@ -1308,7 +1362,53 @@ async function buildDiscoverCatalog(forceRefresh = false): Promise<DiscoverCatal
       tracks:
         electronicRes.tracks.length > 0
           ? electronicRes.tracks
-          : trendingTracks.slice(0, 4),
+          : trendingTracks.slice(0, 6),
+    },
+    {
+      id: 'curated-rwanda-east-africa',
+      title: 'Rwanda & East Africa Pulse',
+      subtitle: 'Kigali Afropop, Gakondo heritage, and East African chart hits ready for instant playback.',
+      genre: 'Afropop & Gakondo',
+      coverUrl: ARTWORK_ACOUSTIC,
+      tracks:
+        rwandaShowcase.length > 0
+          ? rwandaShowcase
+          : afrobeatsFull.length > 0
+            ? afrobeatsFull
+            : trendingTracks.slice(0, 6),
+    },
+    {
+      id: 'curated-afrobeats-amapiano',
+      title: 'Afrobeats & Amapiano Grooves',
+      subtitle: 'Sunlit percussion, log-drum basslines, and contemporary African club rhythms.',
+      genre: 'Afrobeats',
+      coverUrl: ARTWORK_ELECTRONIC,
+      tracks:
+        afrobeatsFull.length > 0
+          ? afrobeatsFull
+          : trendingTracks.slice(0, 6),
+    },
+    {
+      id: 'curated-hiphop-kinyatrap',
+      title: 'Hip-Hop & Studio Ciphers',
+      subtitle: 'Full-length rap cuts, nocturnal 808 instrumentals, and independent lyricists.',
+      genre: 'Hip-Hop',
+      coverUrl: ARTWORK_JAZZ,
+      tracks:
+        hipHopRes.tracks.length > 0
+          ? hipHopRes.tracks
+          : trendingTracks.slice(0, 6),
+    },
+    {
+      id: 'curated-soul-rnb',
+      title: 'Soul, R&B & Late-Night Vocals',
+      subtitle: 'Silky vocal arrangements, electric keys, and slow-burning neo-soul grooves.',
+      genre: 'R&B / Soul',
+      coverUrl: ARTWORK_AMBIENT,
+      tracks:
+        soulRes.tracks.length > 0
+          ? soulRes.tracks
+          : trendingTracks.slice(0, 6),
     },
     {
       id: 'curated-acoustic-warmth',
@@ -1345,9 +1445,16 @@ async function buildDiscoverCatalog(forceRefresh = false): Promise<DiscoverCatal
     },
   ];
 
-  // Build featured artists from trending + curated full-length tracks
+  // Build featured artists from trending + curated full-length tracks + Rwanda verified artists
   const artistMap = new Map<string, ArtistSummary>();
-  for (const t of [...trendingTracks, ...electronicRes.tracks, ...jazzRes, ...afrobeatsFull]) {
+  for (const t of [
+    ...trendingTracks,
+    ...electronicRes.tracks,
+    ...jazzRes,
+    ...afrobeatsFull,
+    ...hipHopRes.tracks,
+    ...soulRes.tracks,
+  ]) {
     const key = t.artistId || t.artist;
     if (!artistMap.has(key)) {
       artistMap.set(key, {
@@ -1367,17 +1474,22 @@ async function buildDiscoverCatalog(forceRefresh = false): Promise<DiscoverCatal
       }
     }
   }
+  for (const rw of rwandaArtists.slice(0, 6)) {
+    if (!artistMap.has(rw.id)) {
+      artistMap.set(rw.id, rw);
+    }
+  }
 
   const catalog: DiscoverCatalog = {
     featuredTitle: 'Global Listening Room',
     featuredSubtitle:
-      'Full-length independent streams, live international radio relays, 5-band parametric EQ, and direct-to-artist storefronts.',
+      'Full-length independent streams, Rwanda & world artists, live international radio relays, 5-band parametric EQ, and direct-to-artist storefronts.',
     heroImageUrl: HERO_LISTENING_ROOM,
     curatedPlaylists,
     spotifyPlaylists: SPOTIFY_PLAYLISTS,
     trendingTracks,
     liveStations: radioStations,
-    featuredArtists: Array.from(artistMap.values()).slice(0, 10),
+    featuredArtists: Array.from(artistMap.values()).slice(0, 16),
     countries: COUNTRIES,
     platforms: PLATFORMS,
     genres: GENRES,
@@ -2238,6 +2350,285 @@ interface IptvCategoryRaw {
 
 const VERIFIED_FEATURED_TV: TvChannel[] = [
   {
+    id: 'RwandaTV.rw',
+    name: 'Rwanda TV (RBA)',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['general', 'news'],
+    logoUrl: 'https://i.imgur.com/4nbGvxW.png',
+    streamUrl: 'https://5c46fa289c89f.streamlock.net/rtv25/rtv/playlist.m3u8',
+    alternateUrls: ['http://197.243.19.131:1935/rtv25/rtv/chunklist.m3u8'],
+    quality: '720p',
+    website: 'https://www.rba.co.rw/tv',
+  },
+  {
+    id: 'MagicSportsTV.rw',
+    name: 'Magic Sports TV Live (RBA)',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['sports', 'general'],
+    logoUrl: 'https://i.imgur.com/Le7ZxXn.png',
+    streamUrl: 'https://5c46fa289c89f.streamlock.net/rtv25/rtv/playlist.m3u8',
+    alternateUrls: [
+      'https://5c46fa289c89f.streamlock.net/pub1live/mystream/playlist.m3u8',
+      'https://bein-xtra-bein.amagi.tv/playlist.m3u8',
+    ],
+    quality: '720p',
+    website: 'https://www.rba.co.rw/',
+  },
+  {
+    id: 'KC2.rw',
+    name: 'KC2 Rwanda (RBA)',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['entertainment', 'music'],
+    logoUrl: 'https://i.imgur.com/PsYPzNc.png',
+    streamUrl: 'https://5c46fa289c89f.streamlock.net/kc2/kc2/chunklist.m3u8',
+    alternateUrls: ['http://197.243.19.131:1935/kc2/kc2/chunklist.m3u8'],
+    quality: '720p',
+    website: 'https://www.rba.co.rw/kc2',
+  },
+  {
+    id: 'IsiboTV.rw',
+    name: 'Isibo TV',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['entertainment', 'music'],
+    logoUrl: 'https://i.imgur.com/bXhEeTC.png',
+    streamUrl: 'https://5c46fa289c89f.streamlock.net/pub2live/myStream/playlist.m3u8',
+    quality: '720p',
+    website: 'https://www.isibomedia.com/',
+  },
+  {
+    id: 'TV1.rw',
+    name: 'TV1 Rwanda',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['general', 'news'],
+    logoUrl: 'https://i.imgur.com/wk59tHA.png',
+    streamUrl: 'https://live.tv1.rw/index.m3u8',
+    quality: '720p',
+    website: 'https://www.tv1.rw/',
+  },
+  {
+    id: 'TV10.rw',
+    name: 'TV10 Rwanda',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['general', 'sports'],
+    logoUrl: 'https://i.imgur.com/DeaWC1N.png',
+    streamUrl: 'https://5c46fa289c89f.streamlock.net/pub1live/mystream/playlist.m3u8',
+    quality: '720p',
+    website: 'http://www.radiotv10.rw/',
+  },
+  {
+    id: 'BTNTV.rw',
+    name: 'BTN TV Rwanda',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['general', 'news'],
+    logoUrl: 'https://i.imgur.com/WmaP8zP.png',
+    streamUrl: 'https://tv.btnrwanda.com:3973/live/btnv2live.m3u8',
+    quality: '720p',
+    website: 'https://btnrwanda.com/',
+  },
+  {
+    id: 'IsangoTV.rw',
+    name: 'Isango TV',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['music', 'entertainment'],
+    logoUrl: 'https://i.imgur.com/EfsHaMQ.png',
+    streamUrl: 'http://80.241.215.175:1935/isangostar/isangostar/playlist.m3u8',
+    quality: '720p',
+    website: 'http://www.isangostar.rw/',
+  },
+  {
+    id: 'FlashTV.rw',
+    name: 'Flash TV Rwanda',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['general', 'news'],
+    logoUrl: 'https://i.imgur.com/0IViNQw.png',
+    streamUrl: '',
+    embedUrl: 'https://rtsp.me/embed/BU1Lr9xabYEDqX7k/',
+    quality: 'HD Live',
+    website: 'https://flash.rw/flash-tv-live/',
+  },
+  {
+    id: 'BPlusTV.rw',
+    name: 'B+ TV Rwanda',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['entertainment', 'general'],
+    logoUrl: 'https://i.ibb.co/WzLwj3X/IMG-20230703-155036.jpg',
+    streamUrl: '',
+    embedUrl: 'https://www.youtube.com/embed/live_stream?channel=UCPVldCQvy-xXehq2IAYk1lQ&autoplay=1',
+    quality: 'HD Live',
+    website: 'https://btnrwanda.com/',
+  },
+  {
+    id: 'PacisTV.rw',
+    name: 'Pacis TV Rwanda',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['religious', 'general'],
+    logoUrl: 'https://i.imgur.com/Z1BAljS.png',
+    streamUrl: '',
+    embedUrl: 'https://www.youtube.com/embed/live_stream?channel=UCnS1P03IPFypMVwq6ws2RTw&autoplay=1',
+    quality: 'HD Live',
+    website: 'https://pacistv.rw/',
+  },
+  {
+    id: 'GenesisTV.rw',
+    name: 'Genesis TV Rwanda',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['religious', 'entertainment'],
+    logoUrl: 'https://i.imgur.com/o9vlINF.png',
+    streamUrl: '',
+    embedUrl: 'https://www.youtube.com/embed/live_stream?channel=UCgcajZszd4xkpe4oSWOHjdg&autoplay=1',
+    quality: 'HD Live',
+  },
+  {
+    id: 'AuthenticTV.rw',
+    name: 'Authentic TV Rwanda',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['religious', 'general'],
+    logoUrl: 'https://i.imgur.com/PZ1yJjn.png',
+    streamUrl: '',
+    embedUrl: 'https://www.youtube.com/embed/live_stream?channel=UCvyC8p3smlA5T_zZ19CUgKw&autoplay=1',
+    quality: 'HD Live',
+  },
+  {
+    id: 'IzubaTV.rw',
+    name: 'Izuba TV Rwanda',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['general', 'news'],
+    logoUrl: 'https://i.imgur.com/cRA1CuG.png',
+    streamUrl: '',
+    embedUrl: 'https://www.youtube.com/embed/live_stream?channel=UClc3EdFHAOWO7Jkbcp7e_OQ&autoplay=1',
+    quality: 'HD Live',
+    website: 'https://www.izubaradiotv.rw/',
+  },
+  {
+    id: 'GoodrichTV.rw',
+    name: 'Goodrich TV Rwanda',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['business', 'general'],
+    logoUrl: 'https://i.imgur.com/52ouIBt.png',
+    streamUrl: '',
+    embedUrl: 'https://www.youtube.com/embed/live_stream?channel=UC6nnOeQKV3uari65ghGm7fA&autoplay=1',
+    quality: 'HD Live',
+    website: 'https://goodrichtv.com/en',
+  },
+  {
+    id: 'BCNTV.rw',
+    name: 'BCN TV Rwanda',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['religious', 'general'],
+    logoUrl: 'https://i.imgur.com/rP46S5B.png',
+    streamUrl: '',
+    embedUrl: 'https://www.youtube.com/embed/live_stream?channel=UCF22W7Vkp6bjqQiPOm84Viw&autoplay=1',
+    quality: 'HD Live',
+    website: 'https://bcntv.org/',
+  },
+  {
+    id: 'AhupaVisualRadio.rw',
+    name: 'Ahupa Visual Radio',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['entertainment', 'music'],
+    logoUrl: 'https://i.imgur.com/nJbAbfW.png',
+    streamUrl: '',
+    embedUrl: 'https://www.youtube.com/embed/live_stream?channel=UCqejKl-RxFM8sn8pUArWUsA&autoplay=1',
+    quality: 'HD Live',
+    website: 'https://ahuparadio.com/',
+  },
+  {
+    id: 'VictoryTV.rw',
+    name: 'Victory TV Rwanda',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['religious', 'general'],
+    logoUrl: '',
+    streamUrl: '',
+    embedUrl: 'https://www.youtube.com/embed/live_stream?channel=UCvYVGf_JFME9dVe3WtljP1Q&autoplay=1',
+    quality: 'HD Live',
+  },
+  {
+    id: 'IshushoTV.rw',
+    name: 'Ishusho TV Rwanda',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['culture', 'sports'],
+    logoUrl: 'https://i.ibb.co/BjpLqbN/ISHUSHO-TV-LOGO-orange.png',
+    streamUrl: '',
+    embedUrl: 'https://www.youtube.com/embed/live_stream?channel=UCaUb-MWfVZVIETMu2p9hZPQ&autoplay=1',
+    quality: 'HD Live',
+    website: 'https://ishushotv.online/',
+  },
+  {
+    id: 'ContactTV.rw',
+    name: 'Contact TV Rwanda',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['religious', 'general'],
+    logoUrl: 'https://i.imgur.com/sb6gK3K.jpeg',
+    streamUrl: '',
+    embedUrl: 'https://www.youtube.com/embed/live_stream?channel=UCom0Bc5CisG2zJjXozr8urA&autoplay=1',
+    quality: 'HD Live',
+  },
+  {
+    id: 'SemitaTV.rw',
+    name: 'Semita TV Rwanda',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['religious', 'culture'],
+    logoUrl: 'https://i.imgur.com/VwzgyZ5.png',
+    streamUrl: '',
+    embedUrl: 'https://www.youtube.com/embed/live_stream?channel=UCdOlJEPQ4nWcmf1FFdAozqA&autoplay=1',
+    quality: 'HD Live',
+    website: 'https://semita.tv/',
+  },
+  {
+    id: 'CH10TV.rw',
+    name: 'CH10 TV Rwanda',
+    countryCode: 'RW',
+    countryName: 'Rwanda',
+    countryFlag: '🇷🇼',
+    categories: ['entertainment', 'music'],
+    logoUrl: '',
+    streamUrl: '',
+    embedUrl: 'https://www.youtube.com/embed/live_stream?channel=UC-hfYFkXZ6sTmI-BrW1fPAQ&autoplay=1',
+    quality: 'HD Live',
+  },
+  {
     id: 'France24.fr',
     name: 'France 24 English',
     countryCode: 'FR',
@@ -2255,6 +2646,32 @@ const VERIFIED_FEATURED_TV: TvChannel[] = [
     website: 'https://www.france24.com/en/',
   },
   {
+    id: 'AlJazeeraEnglish.qa',
+    name: 'Al Jazeera English',
+    countryCode: 'QA',
+    countryName: 'Qatar',
+    countryFlag: '🇶🇦',
+    categories: ['news'],
+    logoUrl: 'https://i.imgur.com/7bRVpnu.png',
+    streamUrl: 'https://live-hls-apps-aje-fa.getaj.net/AJE/index.m3u8',
+    alternateUrls: ['https://live-hls-web-aja2-gcp.thehlive.com/AJA2/index.m3u8'],
+    quality: '1080p',
+    website: 'https://www.aljazeera.com/live',
+  },
+  {
+    id: 'BBCNews.uk',
+    name: 'BBC News',
+    countryCode: 'GB',
+    countryName: 'United Kingdom',
+    countryFlag: '🇬🇧',
+    categories: ['news'],
+    logoUrl:
+      'https://xstreamcp-assets-msp.streamready.in/assets/LIVETV/LIVECHANNEL/LIVETV_LIVETVCHANNEL_BBC_NEWS/images/LOGO_HD/image.png',
+    streamUrl: 'https://mumbai-edge.smartplaytv.in/BBCNews/index.m3u8',
+    quality: '720p',
+    website: 'https://www.bbc.com/news',
+  },
+  {
     id: 'DWEnglish.de',
     name: 'DW English',
     countryCode: 'DE',
@@ -2265,6 +2682,17 @@ const VERIFIED_FEATURED_TV: TvChannel[] = [
     streamUrl: 'https://dwamdstream102.akamaized.net/hls/live/2015525/dwstream102/index.m3u8',
     quality: '1080p',
     website: 'https://www.dw.com/en/',
+  },
+  {
+    id: 'AfrobeatTVEntertainment.uk',
+    name: 'Afrobeat TV Entertainment',
+    countryCode: 'GB',
+    countryName: 'United Kingdom',
+    countryFlag: '🇬🇧',
+    categories: ['music', 'entertainment'],
+    logoUrl: 'https://i.imgur.com/232ndRK.png',
+    streamUrl: 'https://stream.ecable.tv/afrobeats/index.m3u8',
+    quality: '1080p',
   },
   {
     id: 'TRACEUK.uk',
@@ -2290,91 +2718,115 @@ const VERIFIED_FEATURED_TV: TvChannel[] = [
     quality: '1080p',
   },
   {
-    id: 'RwandaTV.rw',
-    name: 'Rwanda TV (RBA)',
-    countryCode: 'RW',
-    countryName: 'Rwanda',
-    countryFlag: '🇷🇼',
+    id: 'DanceTelevision.nl',
+    name: 'Dance Television HD',
+    countryCode: 'NL',
+    countryName: 'Netherlands',
+    countryFlag: '🇳🇱',
+    categories: ['music'],
+    logoUrl: 'https://pbs.twimg.com/profile_images/1268129322730127364/OJlQBZpS_400x400.jpg',
+    streamUrl: 'https://m1b2.worldcast.tv/dancetelevisionone/2/dancetelevisionone.m3u8',
+    alternateUrls: ['https://m1b2.worldcast.tv/dancetelevisionone/dancetelevisionone.m3u8'],
+    quality: '1080p',
+  },
+  {
+    id: 'DanceTVDeepHouseDistrict.ee',
+    name: 'Deep House District TV',
+    countryCode: 'EE',
+    countryName: 'Estonia',
+    countryFlag: '🇪🇪',
+    categories: ['music'],
+    logoUrl: '',
+    streamUrl: 'https://m1b2.worldcast.tv/dancetelevisiontwo/dancetelevisiontwo.m3u8',
+    quality: '1080p',
+  },
+  {
+    id: 'DeluxeDance.de',
+    name: 'Deluxe Dance',
+    countryCode: 'DE',
+    countryName: 'Germany',
+    countryFlag: '🇩🇪',
+    categories: ['music'],
+    logoUrl: 'https://i.imgur.com/Qu7t15Y.png',
+    streamUrl: 'https://sdn-global-live-streaming-packager-cache.3qsdn.com/64733/64733_264_live.m3u8',
+    quality: '1080p',
+  },
+  {
+    id: 'Classica.de',
+    name: 'Stingray Classica',
+    countryCode: 'DE',
+    countryName: 'Germany',
+    countryFlag: '🇩🇪',
+    categories: ['music', 'culture'],
+    logoUrl: '',
+    streamUrl: 'https://jmp2.uk/plu-5f779951372da90007fd45e8.m3u8',
+    quality: '720p',
+  },
+  {
+    id: 'DBMTV.fr',
+    name: 'DBM Music TV',
+    countryCode: 'FR',
+    countryName: 'France',
+    countryFlag: '🇫🇷',
+    categories: ['music'],
+    logoUrl: 'https://i.imgur.com/ab6p2SW.png',
+    streamUrl: 'https://dbmtv.vedge.infomaniak.com/livecast/dbmtv/playlist.m3u8',
+    quality: '1080p',
+  },
+  {
+    id: 'CaliforniaMusicChannel.us',
+    name: 'California Music Channel',
+    countryCode: 'US',
+    countryName: 'United States',
+    countryFlag: '🇺🇸',
+    categories: ['music'],
+    logoUrl: '',
+    streamUrl: 'https://cmc-cmctv-cineverse.amagi.tv/playlist.m3u8',
+    quality: '1080p',
+  },
+  {
+    id: 'ClubbingTV.us',
+    name: 'Clubbing TV',
+    countryCode: 'US',
+    countryName: 'United States',
+    countryFlag: '🇺🇸',
+    categories: ['music'],
+    logoUrl: 'https://i.imgur.com/MyiA92q.png',
+    streamUrl: 'https://a-cdn.klowdtv.com/live3/clubbingtv_720p/playlist.m3u8',
+    quality: '720p',
+  },
+  {
+    id: 'K24.ke',
+    name: 'K24 TV Kenya',
+    countryCode: 'KE',
+    countryName: 'Kenya',
+    countryFlag: '🇰🇪',
     categories: ['general', 'news'],
-    logoUrl: '',
-    streamUrl: 'https://5c46fa289c89f.streamlock.net/rtv25/rtv/playlist.m3u8',
-    alternateUrls: ['http://197.243.19.131:1935/rtv25/rtv/chunklist.m3u8'],
-    quality: '720p',
-    website: 'https://www.rba.co.rw/tv',
+    logoUrl: 'https://i.imgur.com/SUjo6Bm.png',
+    streamUrl: 'https://livecdn.premiumfree.tv/afxpstr/K24Backup/index.m3u8',
+    quality: '1080p',
   },
   {
-    id: 'KC2.rw',
-    name: 'KC2 Rwanda (RBA)',
-    countryCode: 'RW',
-    countryName: 'Rwanda',
-    countryFlag: '🇷🇼',
-    categories: ['entertainment', 'music'],
-    logoUrl: '',
-    streamUrl: 'https://5c46fa289c89f.streamlock.net/kc2/kc2/chunklist.m3u8',
-    alternateUrls: ['http://197.243.19.131:1935/kc2/kc2/chunklist.m3u8'],
+    id: 'InooroTV.ke',
+    name: 'Inooro TV Kenya',
+    countryCode: 'KE',
+    countryName: 'Kenya',
+    countryFlag: '🇰🇪',
+    categories: ['general', 'entertainment'],
+    logoUrl: 'https://i.imgur.com/5qFJtmo.png',
+    streamUrl: 'https://live-onesignal.royalmedia.co.ke/live/T-MxRsFebq6zx7k2QFMbLw.m3u8',
     quality: '720p',
-    website: 'https://www.rba.co.rw/kc2',
   },
   {
-    id: 'IsiboTV.rw',
-    name: 'Isibo TV',
-    countryCode: 'RW',
-    countryName: 'Rwanda',
-    countryFlag: '🇷🇼',
-    categories: ['entertainment', 'music'],
-    logoUrl: '',
-    streamUrl: 'https://5c46fa289c89f.streamlock.net/pub2live/myStream/playlist.m3u8',
+    id: 'AkiliKids.ke',
+    name: 'Akili Kids! East Africa',
+    countryCode: 'KE',
+    countryName: 'Kenya',
+    countryFlag: '🇰🇪',
+    categories: ['education', 'kids'],
+    logoUrl: 'https://i.imgur.com/xFm2co6.png',
+    streamUrl: 'https://m6.livecdn.io/akilikids.co.ke/akilikids.smil/playlist.m3u8',
     quality: '720p',
-    website: 'https://www.isibomedia.com/',
-  },
-  {
-    id: 'TV1.rw',
-    name: 'TV1 Rwanda',
-    countryCode: 'RW',
-    countryName: 'Rwanda',
-    countryFlag: '🇷🇼',
-    categories: ['general', 'news'],
-    logoUrl: '',
-    streamUrl: 'https://live.tv1.rw/index.m3u8',
-    quality: '720p',
-    website: 'https://www.tv1.rw/',
-  },
-  {
-    id: 'TV10.rw',
-    name: 'TV10 Rwanda',
-    countryCode: 'RW',
-    countryName: 'Rwanda',
-    countryFlag: '🇷🇼',
-    categories: ['general', 'sports'],
-    logoUrl: '',
-    streamUrl: 'https://5c46fa289c89f.streamlock.net/pub1live/mystream/playlist.m3u8',
-    quality: '720p',
-    website: 'http://www.radiotv10.rw/',
-  },
-  {
-    id: 'IsangoTV.rw',
-    name: 'Isango TV',
-    countryCode: 'RW',
-    countryName: 'Rwanda',
-    countryFlag: '🇷🇼',
-    categories: ['music', 'entertainment'],
-    logoUrl: '',
-    streamUrl: 'http://80.241.215.175:1935/isangostar/isangostar/playlist.m3u8',
-    quality: '720p',
-    website: 'http://www.isangostar.rw/',
-  },
-  {
-    id: 'FlashTV.rw',
-    name: 'Flash TV Rwanda',
-    countryCode: 'RW',
-    countryName: 'Rwanda',
-    countryFlag: '🇷🇼',
-    categories: ['general', 'news'],
-    logoUrl: '',
-    streamUrl: '',
-    embedUrl: 'https://rtsp.me/embed/BU1Lr9xabYEDqX7k/',
-    quality: 'HD Live',
-    website: 'https://flash.rw/flash-tv-live/',
   },
   {
     id: 'CNNHeadlines.us',
@@ -2389,13 +2841,48 @@ const VERIFIED_FEATURED_TV: TvChannel[] = [
     quality: '1080p',
   },
   {
+    id: 'BloombergOriginals.us',
+    name: 'Bloomberg Originals',
+    countryCode: 'US',
+    countryName: 'United States',
+    countryFlag: '🇺🇸',
+    categories: ['business', 'news', 'documentary'],
+    logoUrl: 'https://jiotvimages.cdn.jio.com/dare_images/images/Bloomberg_Originals.png',
+    streamUrl:
+      'https://86fdc85a.wurl.com/master/f36d25e7e52f1ba8d7e56eb859c636563214f541/TEctZ2JfQmxvb21iZXJnT3JpZ2luYWxzX0hMUw/playlist.m3u8',
+    quality: '1080p',
+  },
+  {
+    id: 'BBCEarth.uk',
+    name: 'BBC Earth',
+    countryCode: 'GB',
+    countryName: 'United Kingdom',
+    countryFlag: '🇬🇧',
+    categories: ['documentary'],
+    logoUrl: 'https://upload.wikimedia.org/wikipedia/commons/7/7e/BBC_Earth_2023.svg',
+    streamUrl:
+      'https://amg00793-amg00793c6-vizio-us-2670.playouts.now.amagi.tv/playlist/amg00793-bbcstudios-bbcearthaall-vizious/playlist.m3u8',
+    quality: '1080p',
+  },
+  {
+    id: 'CuriosityNOW.de',
+    name: 'Curiosity NOW',
+    countryCode: 'DE',
+    countryName: 'Germany',
+    countryFlag: '🇩🇪',
+    categories: ['documentary', 'science'],
+    logoUrl: 'https://i.imgur.com/gJ9eMaG.png',
+    streamUrl: 'https://amg00170-amg00170c4-samsung-gb-4232.playouts.now.amagi.tv/playlist.m3u8',
+    quality: '1080p',
+  },
+  {
     id: 'AlJazeera2.qa',
     name: 'Al Jazeera 2',
     countryCode: 'QA',
     countryName: 'Qatar',
     countryFlag: '🇶🇦',
     categories: ['news'],
-    logoUrl: '',
+    logoUrl: 'https://i.imgur.com/miq8O1Q.png',
     streamUrl: 'https://live-hls-web-aja2-gcp.thehlive.com/AJA2/index.m3u8',
     quality: '1080p',
   },
@@ -2423,40 +2910,13 @@ const VERIFIED_FEATURED_TV: TvChannel[] = [
     quality: '1080p',
   },
   {
-    id: 'ClubbingTV.us',
-    name: 'Clubbing TV',
-    countryCode: 'US',
-    countryName: 'United States',
-    countryFlag: '🇺🇸',
-    categories: ['music'],
-    logoUrl: '',
-    streamUrl: 'https://a-cdn.klowdtv.com/live3/clubbingtv_720p/playlist.m3u8',
-    quality: '720p',
-  },
-  {
-    id: 'MagicSportTV.rw',
-    name: 'Magic Sport TV (RBA)',
-    countryCode: 'RW',
-    countryName: 'Rwanda',
-    countryFlag: '🇷🇼',
-    categories: ['sports', 'general'],
-    logoUrl: '',
-    streamUrl: 'https://5c46fa289c89f.streamlock.net/rtv25/rtv/playlist.m3u8',
-    alternateUrls: [
-      'https://5c46fa289c89f.streamlock.net/pub1live/mystream/playlist.m3u8',
-      'https://bein-xtra-bein.amagi.tv/playlist.m3u8',
-    ],
-    quality: '720p',
-    website: 'https://www.rba.co.rw/',
-  },
-  {
     id: 'beINSPORTSXTRA.us',
     name: 'beIN SPORTS XTRA',
     countryCode: 'US',
     countryName: 'United States',
     countryFlag: '🇺🇸',
     categories: ['sports'],
-    logoUrl: '',
+    logoUrl: 'https://i.ibb.co/HT49GPmB/XTRA-2.png',
     streamUrl: 'https://bein-xtra-bein.amagi.tv/playlist.m3u8',
     alternateUrls: ['https://dc1644a9jazgj.cloudfront.net/beIN_Sports_Xtra_Espanol.m3u8'],
     quality: '1080p',
@@ -2482,8 +2942,30 @@ const VERIFIED_FEATURED_TV: TvChannel[] = [
     countryName: 'United States',
     countryFlag: '🇺🇸',
     categories: ['sports', 'news'],
-    logoUrl: '',
+    logoUrl: 'https://i.imgur.com/q8BENJg.png',
     streamUrl: 'https://jmp2.uk/plu-5e9f2c05172a0f0007db4786.m3u8',
+    quality: '1080p',
+  },
+  {
+    id: 'ESPN8TheOcho.us',
+    name: 'ESPN8: The Ocho',
+    countryCode: 'US',
+    countryName: 'United States',
+    countryFlag: '🇺🇸',
+    categories: ['sports'],
+    logoUrl: 'https://images.fubo.tv/channel-config-ui/station-logos/on-dark/espn_8_the_ocho_bw.png',
+    streamUrl: 'https://d3b6q2ou5kp8ke.cloudfront.net/ESPNTheOcho.m3u8',
+    quality: '1080p',
+  },
+  {
+    id: 'DDSports.in',
+    name: 'DD Sports HD',
+    countryCode: 'IN',
+    countryName: 'India',
+    countryFlag: '🇮🇳',
+    categories: ['sports'],
+    logoUrl: 'https://dtil.tmsimg.com/assets/s158255_ld_h15_aa.png?lock=720x540',
+    streamUrl: 'https://d3qs3d2rkhfqrt.cloudfront.net/out/v1/b17adfe543354fdd8d189b110617cddd/index.m3u8',
     quality: '1080p',
   },
   {
@@ -3011,6 +3493,466 @@ async function collectVerifiedChannels(
 
   return { verified, scannedCount };
 }
+
+app.get('/api/tv/rwanda', async (_req: Request, res: Response) => {
+  try {
+    const [catalog, rwandaRadio] = await Promise.all([
+      buildTvCatalog(),
+      fetchRadioStations('Rwanda', undefined, 10),
+    ]);
+    const channels = catalog.channels.filter((ch) => ch.countryCode === 'RW');
+    res.json({
+      total: channels.length,
+      channels,
+      radio: rwandaRadio,
+    });
+  } catch {
+    const fallback = VERIFIED_FEATURED_TV.filter((ch) => ch.countryCode === 'RW');
+    res.json({
+      total: fallback.length,
+      channels: fallback,
+      radio: [],
+    });
+  }
+});
+
+// SSRF-safe Image CORS Proxy for canvas dominant-color extraction on remote album art / TV logos
+function isBlockedProxyHostname(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!host) return true;
+  if (
+    host === 'localhost' ||
+    host === '0.0.0.0' ||
+    host === '::1' ||
+    host.endsWith('.local') ||
+    host.endsWith('.internal') ||
+    host.endsWith('.localhost')
+  ) {
+    return true;
+  }
+  if (/^fe80:/i.test(host) || /^fc/i.test(host) || /^fd/i.test(host)) {
+    return true;
+  }
+  const ipv4Match = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4Match) {
+    const a = Number(ipv4Match[1]);
+    const b = Number(ipv4Match[2]);
+    if (
+      a === 10 ||
+      a === 127 ||
+      a === 0 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+app.get('/api/image-proxy', async (req: Request, res: Response) => {
+  const rawUrl = String(req.query.url || '').trim();
+  if (!rawUrl) {
+    return res.status(400).send('Missing url');
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return res.status(400).send('Invalid image URL');
+  }
+  if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || isBlockedProxyHostname(parsed.hostname)) {
+    return res.status(403).send('Blocked host');
+  }
+
+  try {
+    const upstream = await fetch(parsed.toString(), {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; SoundmarkColorSampler/1.0)',
+        Accept: 'image/*,*/*;q=0.8',
+      },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (!upstream.ok) {
+      return res.status(upstream.status).send('Image fetch failed');
+    }
+
+    const finalHost = new URL(upstream.url || parsed.toString()).hostname;
+    if (isBlockedProxyHostname(finalHost)) {
+      return res.status(403).send('Blocked redirect target');
+    }
+
+    const contentType = (upstream.headers.get('content-type') || '').toLowerCase();
+    if (!contentType.startsWith('image/')) {
+      return res.status(415).send('Not an image');
+    }
+
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    if (buf.byteLength > 5 * 1024 * 1024) {
+      return res.status(413).send('Image too large');
+    }
+
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(buf);
+  } catch {
+    res.status(502).send('Image proxy error');
+  }
+});
+
+interface EpgSlotTemplate {
+  title: string;
+  category: string;
+  description: string;
+  durationMin: number;
+}
+
+const EPG_TEMPLATES: Record<string, EpgSlotTemplate[]> = {
+  'RwandaTV.rw': [
+    { title: 'Amakuru y’U Rwanda / Rwanda News Live', category: 'News', description: 'National bulletins, Kigali civic briefings, and East African regional reports from RBA.', durationMin: 60 },
+    { title: 'Wararamutse Rwanda', category: 'Morning Show', description: 'Live current affairs, studio guests, traffic, and business updates across Rwanda.', durationMin: 90 },
+    { title: 'Kubaza Bitera Kumenya', category: 'Public Affairs', description: 'Citizen policy dialogue and national development roundtables with Rwandan leaders.', durationMin: 60 },
+    { title: 'Rwanda Premier League Focus', category: 'Sports', description: 'Match highlights, Kigali Pelé Stadium previews, and Amavubi national team updates.', durationMin: 60 },
+    { title: 'RBA Evening Journal (English & Kinyarwanda)', category: 'News', description: 'Prime-time national broadcast, economy desk, and East African Community headlines.', durationMin: 60 },
+    { title: 'Umuziki Nyarwanda Showcase', category: 'Culture', description: 'Live cultural performances, traditional Inanga & contemporary Kigali music sessions.', durationMin: 60 },
+  ],
+  'MagicSportsTV.rw': [
+    { title: 'Magic Sports Live: Matchday Studio', category: 'Sports', description: 'Live RBA sports broadcast desk covering Rwanda Premier League, BAL basketball, and global football.', durationMin: 90 },
+    { title: 'Rwanda Premier League Matchweek Live', category: 'Football', description: 'APR FC, Rayon Sports, Police FC & Kiyovu Sports action with tactical analysis.', durationMin: 90 },
+    { title: 'BAL & BK Arena Basketball Hour', category: 'Basketball', description: 'Basketball Africa League highlights, Rwanda Energy Group & Patriots BBC features.', durationMin: 60 },
+    { title: 'Amavubi & CAF Champions Desk', category: 'Football', description: 'African continental qualifiers, player interviews, and live scoreboard tracking.', durationMin: 60 },
+    { title: 'Tour du Rwanda Cycling Chronicles', category: 'Cycling', description: 'Stage recaps from Kigali hills, Rubavu climbs, and Team Rwanda rider profiles.', durationMin: 60 },
+    { title: 'European Football & Late Highlights', category: 'Sports', description: 'Premier League, UEFA Champions League, and global matchday wrap-up.', durationMin: 60 },
+  ],
+  'KC2.rw': [
+    { title: 'KC2 Urban Beats & Kigali Top 20', category: 'Music', description: 'Non-stop Rwandan Afrobeats, Gakondo fusion, and East African chart videos.', durationMin: 60 },
+    { title: 'Youth Pulse Kigali', category: 'Entertainment', description: 'Campus talent, creative entrepreneurship, and live DJ sets from RBA Studio 2.', durationMin: 60 },
+    { title: 'The Versus Live Countdown', category: 'Music', description: 'Viewer-voted music battles featuring Kigali and East African hitmakers.', durationMin: 60 },
+    { title: 'Kigali Nightlife & Afropop Mix', category: 'Music', description: 'Continuous studio mix and live artist interviews.', durationMin: 90 },
+    { title: 'East Africa Cinema & Comedy Hour', category: 'Entertainment', description: 'Short films, sketch comedy, and Rwandan creative spotlights.', durationMin: 60 },
+  ],
+  'IsiboTV.rw': [
+    { title: 'The Choice Live', category: 'Entertainment', description: 'Kigali celebrity interviews, new music premieres, and entertainment news.', durationMin: 90 },
+    { title: 'Isibo Top 10 Chart', category: 'Music', description: 'Trending Rwandan & East African music videos and studio countdowns.', durationMin: 60 },
+    { title: 'Sunday Choice & Culture', category: 'Talk', description: 'In-depth conversations with producers, artists, and Kigali tastemakers.', durationMin: 60 },
+    { title: 'Isibo Evening News & Sports', category: 'News', description: 'Daily Rwandan headlines, local football updates, and community stories.', durationMin: 60 },
+    { title: 'Kigali Late Night Sessions', category: 'Music', description: 'Acoustic performances and live club mixes.', durationMin: 90 },
+  ],
+  'TV1.rw': [
+    { title: 'Rirarashe Morning Edition', category: 'News', description: 'Investigative journalism, citizen call-ins, and Kigali morning headlines.', durationMin: 90 },
+    { title: 'TV1 Special Report', category: 'Current Affairs', description: 'In-depth reporting on infrastructure, agriculture, and technology in Rwanda.', durationMin: 60 },
+    { title: 'Zoom In Sports', category: 'Sports', description: 'Rwandan sports debate, league standings, and match previews.', durationMin: 60 },
+    { title: 'TV1 Prime News', category: 'News', description: 'Comprehensive evening news bulletin from Kigali.', durationMin: 60 },
+    { title: 'Kigali Business Forum', category: 'Economy', description: 'East African markets, fintech, and Rwanda Stock Exchange commentary.', durationMin: 60 },
+  ],
+  'TV10.rw': [
+    { title: 'Ten Sports Live', category: 'Sports', description: 'Live radio-TV simulcast debate on Rwanda Premier League and European football.', durationMin: 90 },
+    { title: '10 Tonight News', category: 'News', description: 'National and international headlines with studio correspondents.', durationMin: 60 },
+    { title: 'Ten Zone Entertainment', category: 'Music', description: 'East African hits, celebrity spotlight, and live Kigali culture.', durationMin: 60 },
+    { title: 'Kickoff Africa', category: 'Sports', description: 'CAF competitions, Premier League previews, and fan call-in debates.', durationMin: 60 },
+    { title: 'Midday Music Mix', category: 'Music', description: 'Curated Afropop, R&B, and Rwandan classics.', durationMin: 60 },
+  ],
+  'BTNTV.rw': [
+    { title: 'BTN Business & Innovation', category: 'Business', description: 'Entrepreneurship, Kigali Innovation City startups, and regional trade.', durationMin: 60 },
+    { title: 'Amakuru ya BTN TV', category: 'News', description: 'Daily Rwandan civic, economic, and community news coverage.', durationMin: 60 },
+    { title: 'East Africa Tech Weekly', category: 'Technology', description: 'Digital finance, AI, and creative media hubs across Rwanda.', durationMin: 60 },
+    { title: 'BTN Cultural Magazine', category: 'Culture', description: 'Rwandan heritage, arts exhibitions, and tourism features.', durationMin: 60 },
+  ],
+  'IsangoTV.rw': [
+    { title: 'Isango na Muzika', category: 'Music', description: 'Live Kigali studio interviews with Rwandan musicians and DJs.', durationMin: 60 },
+    { title: 'Sunday Night Live', category: 'Entertainment', description: 'Entertainment talk show and trending cultural stories.', durationMin: 90 },
+    { title: 'Isango Sports Desk', category: 'Sports', description: 'Local football fixtures, cycling updates, and basketball highlights.', durationMin: 60 },
+    { title: 'Isango Evening Bulletin', category: 'News', description: 'Daily Rwanda & regional news summary.', durationMin: 60 },
+  ],
+  'FlashTV.rw': [
+    { title: 'Flash Morning Briefing', category: 'News', description: 'Early headlines, Kigali commuter updates, and newspaper review.', durationMin: 60 },
+    { title: 'Flash Music & Hits', category: 'Music', description: 'Continuous Rwandan and East African chart hits.', durationMin: 90 },
+    { title: 'Flash Prime News', category: 'News', description: 'Evening news broadcast and community field reports.', durationMin: 60 },
+    { title: 'Flash Sports Talk', category: 'Sports', description: 'Match previews and post-game analysis.', durationMin: 60 },
+  ],
+  'France24.fr': [
+    { title: 'France 24 World News Live', category: 'News', description: 'Continuous international news bulletins, diplomatic briefings, and live field reports.', durationMin: 60 },
+    { title: 'The Debate', category: 'Analysis', description: 'Live studio discussion on global geopolitics and major international stories.', durationMin: 45 },
+    { title: 'Eye on Africa', category: 'Africa News', description: 'Daily stories across East, West, and Central Africa from France 24 correspondents.', durationMin: 45 },
+    { title: 'Business & Tech 24', category: 'Economy', description: 'Global markets, European finance, and emerging innovation trends.', durationMin: 45 },
+  ],
+  'AlJazeeraEnglish.qa': [
+    { title: 'Al Jazeera NewsHour', category: 'News', description: 'In-depth global breaking news, live correspondent dispatches, and analysis.', durationMin: 60 },
+    { title: 'Inside Story', category: 'Current Affairs', description: 'Expert panel examining the background behind the day’s top international headline.', durationMin: 45 },
+    { title: 'Witness Documentary', category: 'Documentary', description: 'Character-driven observational documentaries from around the world.', durationMin: 60 },
+    { title: 'Counting the Cost', category: 'Economy', description: 'Global economic trends, energy markets, and trade analysis.', durationMin: 45 },
+  ],
+  'BBCNews.uk': [
+    { title: 'BBC World News', category: 'News', description: 'Live international newsroom coverage from London, Nairobi, and Washington.', durationMin: 60 },
+    { title: 'Focus on Africa', category: 'Africa News', description: 'Stories, sport, and business reporting from across the African continent.', durationMin: 45 },
+    { title: 'BBC HardTalk', category: 'Interview', description: 'In-depth one-on-one interviews with global decision makers.', durationMin: 45 },
+    { title: 'Click & World Business Report', category: 'Tech & Economy', description: 'Technology breakthroughs and global market updates.', durationMin: 60 },
+  ],
+  'beINSPORTSXTRA.us': [
+    { title: 'beIN SPORTS Live Match Coverage', category: 'Sports', description: 'Live football, motorsport, and international tournament broadcasts.', durationMin: 90 },
+    { title: 'The Locker Room Show', category: 'Analysis', description: 'Matchday tactical breakdowns, goals, and studio commentary.', durationMin: 60 },
+    { title: 'Ligue 1 & Süper Lig Highlights', category: 'Football', description: 'Extended highlights and top goals from European club leagues.', durationMin: 60 },
+    { title: 'Copa Libertadores Classics', category: 'Football', description: 'South American club football action and matchday specials.', durationMin: 90 },
+  ],
+  'FIFAPlus.uk': [
+    { title: 'FIFA+ Live Tournament & Classic Matches', category: 'Football', description: 'Live FIFA tournament coverage, qualifiers, and iconic World Cup replays.', durationMin: 90 },
+    { title: 'World Cup Greatest Goals', category: 'Highlights', description: 'Archival showcase of unforgettable tournament moments and stars.', durationMin: 60 },
+    { title: 'Captains & The Global Game', category: 'Documentary', description: 'Behind-the-scenes stories of national teams across Africa, Europe, and the Americas.', durationMin: 60 },
+  ],
+};
+
+function buildCategoryTemplates(ch: TvChannel): EpgSlotTemplate[] {
+  const cats = ch.categories.map((c) => c.toLowerCase());
+  if (cats.includes('sports')) {
+    return [
+      { title: `${ch.name} Live Matchday Desk`, category: 'Sports', description: `Live scoreboard studio, pre-match lineups, and live commentary on ${ch.name}.`, durationMin: 90 },
+      { title: 'Global Football & Championship Highlights', category: 'Football', description: 'Goals, tactical analysis, and live league standings updates.', durationMin: 60 },
+      { title: 'Courtside & Arena Action', category: 'Basketball', description: 'Pro basketball, international fixtures, and player spotlight.', durationMin: 60 },
+      { title: 'Sports Tonight Wrap-Up', category: 'Sports', description: 'Post-match reactions and tomorrow’s fixture preview.', durationMin: 60 },
+    ];
+  }
+  if (cats.includes('news')) {
+    return [
+      { title: `${ch.name} Live NewsHour`, category: 'News', description: `Breaking headlines, live reports, and weather briefings from ${ch.countryName}.`, durationMin: 60 },
+      { title: 'Special Report & Analysis', category: 'Current Affairs', description: 'Correspondents and analysts examine top regional and global stories.', durationMin: 60 },
+      { title: 'Business & Markets Desk', category: 'Economy', description: 'Regional trade, currency updates, and tech briefings.', durationMin: 45 },
+      { title: 'Prime Evening Bulletin', category: 'News', description: `Comprehensive nightly broadcast from ${ch.name}.`, durationMin: 60 },
+    ];
+  }
+  if (cats.includes('music')) {
+    return [
+      { title: `${ch.name} Non-Stop Live Mix`, category: 'Music', description: 'Curated live video rotation featuring trending artists and classics.', durationMin: 60 },
+      { title: 'Top 20 Chart Countdown', category: 'Music', description: 'Weekly chart climbers and viewer-favorite music videos.', durationMin: 60 },
+      { title: 'Studio Live Sessions', category: 'Performance', description: 'Acoustic sets, DJ performances, and artist interviews.', durationMin: 60 },
+      { title: 'After-Hours Chill & Beats', category: 'Music', description: 'Late-night genre mix and visualizers.', durationMin: 90 },
+    ];
+  }
+  if (cats.includes('religious')) {
+    return [
+      { title: `${ch.name} Morning Reflection`, category: 'Inspiration', description: 'Community reflection, choir music, and daily messages.', durationMin: 60 },
+      { title: 'Choral & Gospel Showcase', category: 'Music', description: 'Live choir broadcasts and uplifting performances.', durationMin: 60 },
+      { title: 'Community & Family Dialogue', category: 'Talk', description: 'Panel discussions on youth, education, and community service.', durationMin: 60 },
+      { title: 'Evening Prayer & Vespers', category: 'Service', description: 'Live evening broadcast and hymns.', durationMin: 60 },
+    ];
+  }
+  return [
+    { title: `${ch.name} Live Broadcast`, category: 'General', description: `Live programming from ${ch.countryName} featuring news, culture, and entertainment.`, durationMin: 60 },
+    { title: 'Prime Magazine & Culture', category: 'Culture', description: 'Lifestyle features, arts, and regional storytelling.', durationMin: 60 },
+    { title: 'Evening Headlines & Talk', category: 'Talk', description: 'Studio discussion and daily recap.', durationMin: 60 },
+    { title: 'Late Showcase', category: 'Entertainment', description: 'Music, cinema spotlights, and encore programming.', durationMin: 90 },
+  ];
+}
+
+function buildChannelEpgGuide(
+  ch: TvChannel,
+  nowMs: number,
+  liveMatches: LiveMatchItem[],
+): {
+  channelId: string;
+  channelName: string;
+  countryCode: string;
+  countryFlag: string;
+  categories: string[];
+  logoUrl: string;
+  programs: Array<{
+    id: string;
+    title: string;
+    category: string;
+    description: string;
+    startIso: string;
+    endIso: string;
+    isLiveNow: boolean;
+    progressPct: number;
+  }>;
+} {
+  const baseTemplates = EPG_TEMPLATES[ch.id]
+    ? EPG_TEMPLATES[ch.id].map((t) => ({ ...t }))
+    : buildCategoryTemplates(ch);
+
+  const isSportsChannel = ch.categories.some((c) => c.toLowerCase() === 'sports');
+  if (isSportsChannel && liveMatches.length > 0) {
+    const featuredLive = liveMatches.filter((m) => m.statusState === 'in').slice(0, 2);
+    const featuredUpcoming = liveMatches.filter((m) => m.statusState === 'pre').slice(0, 2);
+    if (featuredLive[0]) {
+      baseTemplates[0] = {
+        ...baseTemplates[0],
+        title: `LIVE: ${featuredLive[0].awayTeam.shortName} vs ${featuredLive[0].homeTeam.shortName} (${featuredLive[0].leagueShort})`,
+        category: featuredLive[0].leagueShort || 'Live Match',
+        description: `${featuredLive[0].statusDetail} · Score ${featuredLive[0].awayTeam.score}–${featuredLive[0].homeTeam.score}${featuredLive[0].venue ? ` · ${featuredLive[0].venue}` : ''}`,
+      };
+    }
+    if (featuredUpcoming[0] && baseTemplates.length > 1) {
+      baseTemplates[1] = {
+        ...baseTemplates[1],
+        title: `Up Next: ${featuredUpcoming[0].awayTeam.shortName} vs ${featuredUpcoming[0].homeTeam.shortName}`,
+        category: featuredUpcoming[0].leagueShort || 'Football',
+        description: `Upcoming ${featuredUpcoming[0].leagueName} fixture${featuredUpcoming[0].venue ? ` at ${featuredUpcoming[0].venue}` : ''}.`,
+      };
+    }
+  }
+
+  const totalCycleMin = baseTemplates.reduce((acc, s) => acc + s.durationMin, 0);
+  const cycleMs = totalCycleMin * 60 * 1000;
+  // Deterministic per-channel phase offset so adjacent channels start on varied schedules
+  let hash = 0;
+  for (let i = 0; i < ch.id.length; i++) {
+    hash = (hash * 31 + ch.id.charCodeAt(i)) >>> 0;
+  }
+  const offsetMin = (hash % 4) * 15;
+  const dayStart = new Date(nowMs);
+  dayStart.setUTCMinutes(0, 0, 0);
+  const anchorMs = dayStart.getTime() - offsetMin * 60 * 1000 - cycleMs;
+
+  // Walk slots starting from anchorMs until we cover [nowMs, nowMs + 6 hours]
+  const programs: Array<{
+    id: string;
+    title: string;
+    category: string;
+    description: string;
+    startIso: string;
+    endIso: string;
+    isLiveNow: boolean;
+    progressPct: number;
+  }> = [];
+
+  let cursorMs = anchorMs;
+  let idx = 0;
+  while (programs.length < 6 && idx < 48) {
+    const tpl = baseTemplates[idx % baseTemplates.length];
+    const slotDurationMs = tpl.durationMin * 60 * 1000;
+    const slotEndMs = cursorMs + slotDurationMs;
+
+    if (slotEndMs > nowMs) {
+      const isLiveNow = cursorMs <= nowMs && nowMs < slotEndMs;
+      const progressPct = isLiveNow
+        ? Math.min(99, Math.max(2, Math.round(((nowMs - cursorMs) / slotDurationMs) * 100)))
+        : 0;
+      programs.push({
+        id: `${ch.id}-slot-${idx}`,
+        title: tpl.title,
+        category: tpl.category,
+        description: tpl.description,
+        startIso: new Date(cursorMs).toISOString(),
+        endIso: new Date(slotEndMs).toISOString(),
+        isLiveNow,
+        progressPct,
+      });
+    }
+
+    cursorMs = slotEndMs;
+    idx += 1;
+  }
+
+  return {
+    channelId: ch.id,
+    channelName: ch.name,
+    countryCode: ch.countryCode,
+    countryFlag: ch.countryFlag,
+    categories: ch.categories,
+    logoUrl: ch.logoUrl,
+    programs,
+  };
+}
+
+app.get('/api/tv/epg', async (req: Request, res: Response) => {
+  const channelId = String(req.query.channelId || '').trim();
+  const countryFilter = String(req.query.country || 'ALL').trim().toUpperCase();
+  const nowMs = Date.now();
+
+  try {
+    const [catalog, liveMatches] = await Promise.all([
+      buildTvCatalog(),
+      fetchAllSportsScores(false).catch(() => [] as LiveMatchItem[]),
+    ]);
+
+    const featuredIds = [
+      'RwandaTV.rw',
+      'MagicSportsTV.rw',
+      'KC2.rw',
+      'IsiboTV.rw',
+      'TV1.rw',
+      'TV10.rw',
+      'BTNTV.rw',
+      'IsangoTV.rw',
+      'FlashTV.rw',
+      'BPlusTV.rw',
+      'PacisTV.rw',
+      'France24.fr',
+      'AlJazeeraEnglish.qa',
+      'BBCNews.uk',
+      'DWEnglish.de',
+      'beINSPORTSXTRA.us',
+      'FIFAPlus.uk',
+      'CBSSportsHQ.us',
+      'AfrobeatTVEntertainment.uk',
+      'TRACEUK.uk',
+    ];
+
+    const byId = new Map<string, TvChannel>();
+    for (const ch of catalog.channels) {
+      byId.set(ch.id, ch);
+    }
+
+    const lineup: TvChannel[] = [];
+    const seen = new Set<string>();
+
+    if (channelId && byId.has(channelId)) {
+      const target = byId.get(channelId)!;
+      lineup.push(target);
+      seen.add(target.id);
+    }
+
+    for (const id of featuredIds) {
+      const ch = byId.get(id);
+      if (ch && !seen.has(ch.id)) {
+        if (countryFilter === 'ALL' || ch.countryCode === countryFilter) {
+          lineup.push(ch);
+          seen.add(ch.id);
+        }
+      }
+    }
+
+    if (countryFilter !== 'ALL') {
+      for (const ch of catalog.channels) {
+        if (ch.countryCode === countryFilter && !seen.has(ch.id)) {
+          lineup.push(ch);
+          seen.add(ch.id);
+          if (lineup.length >= 20) break;
+        }
+      }
+    }
+
+    const guides = lineup.slice(0, 20).map((ch) => buildChannelEpgGuide(ch, nowMs, liveMatches));
+    const selectedGuide = channelId
+      ? guides.find((g) => g.channelId === channelId) ||
+        (byId.get(channelId) ? buildChannelEpgGuide(byId.get(channelId)!, nowMs, liveMatches) : null)
+      : guides[0] || null;
+
+    res.json({
+      generatedAt: new Date(nowMs).toISOString(),
+      selectedGuide,
+      guides,
+    });
+  } catch {
+    const fallbackChannel =
+      VERIFIED_FEATURED_TV.find((c) => c.id === channelId) || VERIFIED_FEATURED_TV[0] || null;
+    const guides = VERIFIED_FEATURED_TV.slice(0, 12).map((ch) =>
+      buildChannelEpgGuide(ch, nowMs, []),
+    );
+    res.json({
+      generatedAt: new Date(nowMs).toISOString(),
+      selectedGuide: fallbackChannel ? buildChannelEpgGuide(fallbackChannel, nowMs, []) : null,
+      guides,
+    });
+  }
+});
+
 
 app.get('/api/tv/channels', async (req: Request, res: Response) => {
   try {
